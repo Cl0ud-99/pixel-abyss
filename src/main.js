@@ -7,6 +7,7 @@ import {
   buildCoral, buildSeagrass,
 } from './creatures.js';
 import { FishSchool, JellyfishGroup, TurtleGroup, OctopusGroup, SeabedGroup } from './sea.js';
+import { CompanionSchool } from './companion.js';
 import { WhaleSwimmer, FollowCamera } from './whaleAI.js';
 import { FreeFlyCamera } from './freeCam.js';
 import { FirstPersonCamera } from './firstPerson.js';
@@ -165,8 +166,23 @@ for (const side of [-1, 1]) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 海底地面：细碎的体素沙地
+// 海床地形
+//
+// 原来是一块平板（起伏只有 0~0.5），这是「技术 Demo」感最明显的地方。
+// 现在用正弦叠加生成沙丘和海沟：
+//   - 大尺度：缓慢起伏的沙丘（振幅约 7）
+//   - 中尺度：交叉的沙脊（振幅约 2.6）
+//   - 细节：高频小起伏（振幅约 0.6）
+// 所有海底静物（珊瑚、海草、海星）都按这个高度种植，不会悬空或陷入。
 // ─────────────────────────────────────────────────────────────
+function terrainHeight(x, z) {
+  return (
+    Math.sin(x * 0.017) * Math.cos(z * 0.021) * 7.0 +
+    Math.sin(x * 0.043 + z * 0.037) * 2.6 +
+    Math.sin(x * 0.11 + z * 0.09) * 0.6
+  );
+}
+
 const SEABED_Y = WORLD.seabedY;
 const seabedGroup = new THREE.Group();
 scene.add(seabedGroup);
@@ -191,7 +207,7 @@ scene.add(seabedGroup);
       if (dist > RANGE) continue;
       // 边缘淡出，避免看到硬边
       if (dist > RANGE - 12 && Math.random() < (dist - (RANGE - 12)) / 12) continue;
-      cells.push({ x, z, h: Math.random() * 0.5 });
+      cells.push({ x, z, y: terrainHeight(x, z) });
     }
   }
 
@@ -201,7 +217,8 @@ scene.add(seabedGroup);
   const p = new THREE.Vector3();
   const one = new THREE.Vector3(1, 1, 1);
   cells.forEach((c, i) => {
-    p.set(c.x, SEABED_Y - c.h, c.z);
+    // 砖块半高 0.4，让顶面正好落在地形高度上
+    p.set(c.x, SEABED_Y + c.y - 0.4, c.z);
     m.compose(p, q, one);
     sandMesh.setMatrixAt(i, m);
   });
@@ -221,12 +238,18 @@ scene.add(seabed.group);
   // 保持视觉密度不变（否则会显得很空旷）
   const AREA = 5; // 相对原来 ±62 场景的面积倍数
 
+  // 按地形高度种植，避免悬空或陷入沙丘
+  const onGround = (x, z, lift = 0) =>
+    new THREE.Vector3(x, SEABED_Y + terrainHeight(x, z) + lift, z);
+
   // 海星：散落在沙地上
   for (let i = 0; i < Math.round(26 * AREA); i++) {
     const a = Math.random() * Math.PI * 2;
     const r = 12 + Math.random() * 115;
+    const px = Math.cos(a) * r;
+    const pz = Math.sin(a) * r;
     seabed.place(buildStarfish(), {
-      position: new THREE.Vector3(Math.cos(a) * r, SEABED_Y + 0.35, Math.sin(a) * r),
+      position: onGround(px, pz, 0.35),
       scale: 0.8 + Math.random() * 0.6,
       rotationY: Math.random() * Math.PI * 2,
     });
@@ -241,12 +264,10 @@ scene.add(seabed.group);
     const cz = Math.sin(a) * r;
     const hue = c % 4;
     for (let k = 0; k < 2 + Math.floor(Math.random() * 3); k++) {
+      const px = cx + (Math.random() - 0.5) * 12;
+      const pz = cz + (Math.random() - 0.5) * 12;
       seabed.place(buildCoral({ hue: hue + k }), {
-        position: new THREE.Vector3(
-          cx + (Math.random() - 0.5) * 12,
-          SEABED_Y + 0.3,
-          cz + (Math.random() - 0.5) * 12
-        ),
+        position: onGround(px, pz, 0.3),
         scale: 1.4 + Math.random() * 1.4, // 场景变大，珊瑚也略放大
         rotationY: Math.random() * Math.PI * 2,
       });
@@ -261,12 +282,10 @@ scene.add(seabed.group);
     const cx = Math.cos(a) * r;
     const cz = Math.sin(a) * r;
     for (let k = 0; k < 3; k++) {
+      const px = cx + (Math.random() - 0.5) * 8;
+      const pz = cz + (Math.random() - 0.5) * 8;
       seabed.placeSeagrass(buildSeagrass(), {
-        position: new THREE.Vector3(
-          cx + (Math.random() - 0.5) * 8,
-          SEABED_Y + 0.3,
-          cz + (Math.random() - 0.5) * 8
-        ),
+        position: onGround(px, pz, 0.3),
         scale: 1.5 + Math.random() * 1.2,
       });
     }
@@ -304,6 +323,20 @@ const angelfishSchool = new FishSchool({
   radiusX: 110, radiusZ: 96, height: 26, seed: 5.6,
 });
 scene.add(angelfishSchool.group);
+
+// ─────────────────────────────────────────────────────────────
+// 伴游鱼群：跟着鲸鱼游的小鱼
+//   这是「主角有生态感」最划算的一笔，代码复用 InstancedGroup，
+//   只多占 1 个 draw call。
+// ─────────────────────────────────────────────────────────────
+const companions = new CompanionSchool({
+  build: buildYellowFish,
+  scale: 4.2, // 鲸鱼放大 3 倍后，伴游鱼也要够大才看得见
+  count: 16,
+  radius: 16, // 基础跟随半径（鲸鱼体长约 12）
+  spread: 9,
+});
+scene.add(companions.group);
 
 // ─────────────────────────────────────────────────────────────
 // 水母 / 海龟 / 章鱼
@@ -573,6 +606,9 @@ function animate() {
   blueTangSchool.update(t, dt);
   yellowFishSchool.update(t, dt);
   angelfishSchool.update(t, dt);
+
+  // 伴游鱼群（跟着鲸鱼）
+  companions.update(t, dt, swimmer);
 
   // 水母 / 海龟 / 章鱼 / 海草
   jellyfishGroup.update(t, dt);

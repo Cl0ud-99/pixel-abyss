@@ -73,6 +73,15 @@ export class InstancedGroup {
     // 每帧复用的蒙版：先算好每只生物的变换矩阵，再批量写入实例
     this._base = instances.map(() => new THREE.Matrix4());
 
+    // InstancedMesh 创建后所有实例矩阵默认是单位矩阵（全叠在原点）。
+    // 在第一次 update 之前，这些实例会聚成一坨出现在 (0,0,0)。
+    // 先把它们移到一个极远处，等 update 写入真实位置。
+    const hidden = new THREE.Matrix4().makeTranslation(0, -99999, 0);
+    for (let i = 0; i < total; i++) {
+      this.mesh.setMatrixAt(i, hidden);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+
     this._initialized = false;
   }
 
@@ -188,6 +197,13 @@ export class ArticulatedGroup {
       }
     }
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+
+    // 同上：先藏到极远处，避免第一帧聚成一坨出现在原点
+    const hidden = new THREE.Matrix4().makeTranslation(0, -99999, 0);
+    for (let i = 0; i < total; i++) {
+      this.mesh.setMatrixAt(i, hidden);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
 
     this.scale = scale;
     this._baseScale = new THREE.Matrix4().makeScale(scale, scale, scale);
