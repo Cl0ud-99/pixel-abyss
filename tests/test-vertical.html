@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>空格 / Ctrl 升降测试</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../node_modules/three/build/three.module.js",
+        "three/addons/": "../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #06122e; color: #cfe0ff; font: 12px ui-monospace, monospace; }
+    #out { padding: 12px; white-space: pre; line-height: 1.8; }
+    .ok { color: #4ade80; }
+    .bad { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div id="out">running…</div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { FreeFlyCamera } from '../src/freeCam.js';
+
+    const lines = [];
+    const log = (s) => lines.push(s);
+    const ok = (c, label, detail = '') => log(`${c ? '✅' : '❌'} ${label}${detail ? '  ' + detail : ''}`);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setSize(320, 200, false);
+    document.body.appendChild(renderer.domElement);
+    const canvas = renderer.domElement;
+
+    const camera = new THREE.PerspectiveCamera(50, 1.6, 0.1, 500);
+    camera.position.set(0, 0, 0);
+    camera.lookAt(0, 0, -1);
+
+    const cam = new FreeFlyCamera(camera, canvas, {
+      speed: 10, boost: 2.5, accel: 10, lookSpeed: 0.002, idleDelay: 0.5,
+    });
+
+    const dt = 1 / 60;
+    const press = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true }));
+    const release = (code) => window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true, cancelable: true }));
+    const run = (sec) => { for (let i = 0; i < Math.round(sec / dt); i++) cam.update(dt); };
+
+    // ── 1. 空格升起 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('Space');
+    run(1);
+    release('Space');
+    ok(camera.position.y > 3, '空格升起（+Y）', `y=${camera.position.y.toFixed(2)}`);
+    ok(Math.abs(camera.position.x) < 0.01 && Math.abs(camera.position.z) < 0.01,
+      '空格升起时无横向漂移');
+
+    // ── 2. Ctrl 下降 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('ControlLeft');
+    run(1);
+    release('ControlLeft');
+    ok(camera.position.y < -3, 'Ctrl 下降（-Y）', `y=${camera.position.y.toFixed(2)}`);
+
+    // ── 3. 右侧 Ctrl 也生效 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('ControlRight');
+    run(1);
+    release('ControlRight');
+    ok(camera.position.y < -3, '右侧 Ctrl 也能下降', `y=${camera.position.y.toFixed(2)}`);
+
+    // ── 4. 空格 + Ctrl 同时按 → 互相抵消 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('Space');
+    press('ControlLeft');
+    run(1);
+    release('Space');
+    release('ControlLeft');
+    ok(Math.abs(camera.position.y) < 0.5, '空格+Ctrl 同时按互相抵消',
+      `y=${camera.position.y.toFixed(3)}`);
+
+    // ── 5. 空格 preventDefault（不滚动页面）──
+    let spacePrevented = false;
+    const probe = (e) => { if (e.code === 'Space') spacePrevented = e.defaultPrevented; };
+    window.addEventListener('keydown', probe);
+    press('Space');
+    window.removeEventListener('keydown', probe);
+    release('Space');
+    ok(spacePrevented, '空格阻止了页面滚动默认行为');
+
+    // ── 6. Ctrl preventDefault ──
+    let ctrlPrevented = false;
+    const probe2 = (e) => { if (e.code === 'ControlLeft') ctrlPrevented = e.defaultPrevented; };
+    window.addEventListener('keydown', probe2);
+    press('ControlLeft');
+    window.removeEventListener('keydown', probe2);
+    release('ControlLeft');
+    ok(ctrlPrevented, 'Ctrl 阻止了浏览器默认快捷键');
+
+    // ── 7. E/Q 备用键仍然可用 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyE');
+    run(1);
+    release('KeyE');
+    ok(camera.position.y > 3, 'E 仍可升起（备用键）', `y=${camera.position.y.toFixed(2)}`);
+
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyQ');
+    run(1);
+    release('KeyQ');
+    ok(camera.position.y < -3, 'Q 仍可下降（备用键）', `y=${camera.position.y.toFixed(2)}`);
+
+    // ── 8. 高度上下限 ──
+    const bounded = new FreeFlyCamera(camera, canvas, {
+      speed: 50, accel: 40, minY: -10, maxY: 20,
+    });
+    camera.position.set(0, 0, 0);
+    bounded.enter();
+    bounded.keys.add('up');
+    for (let i = 0; i < 300; i++) bounded.update(dt);
+    ok(camera.position.y <= 20.01, '上升不超高上限', `y=${camera.position.y.toFixed(2)} (上限 20)`);
+    bounded.keys.clear();
+    bounded.keys.add('down');
+    for (let i = 0; i < 400; i++) bounded.update(dt);
+    ok(camera.position.y >= -10.01, '下降不低过下限', `y=${camera.position.y.toFixed(2)} (下限 -10)`);
+    bounded.dispose();
+
+    const passed = lines.filter((l) => l.startsWith('✅')).length;
+    const failed = lines.filter((l) => l.startsWith('❌')).length;
+
+    document.getElementById('out').innerHTML =
+      lines.map((l) => `<div class="${l.startsWith('✅') ? 'ok' : l.startsWith('❌') ? 'bad' : ''}">${l}</div>`).join('') +
+      `<div style="margin-top:12px">通过 ${passed} / ${passed + failed}</div>`;
+
+    document.body.dataset.done = failed === 0 ? 'pass' : 'fail';
+    window.__RESULT__ = { passed, failed };
+  </script>
+</body>
+</html>

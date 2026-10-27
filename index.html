@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PIXEL ABYSS · 像素深海</title>
+  <link rel="stylesheet" href="./src/ui.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- ══════════ 开屏页 ══════════ -->
+  <div id="splash">
+    <div class="bubbles" id="splashBubbles"></div>
+
+    <div class="inner">
+      <!-- 像素鲸鱼尾巴标志 -->
+      <div class="logo-mark" id="logoMark"></div>
+
+      <h1>
+        <span class="accent">PIXEL</span><br />
+        <span class="accent2">ABYSS</span>
+      </h1>
+      <div class="cn-name">像素深海</div>
+
+      <div class="tagline">
+        潜入体素构成的深海<br />
+        跟着蓝鲸，去没有光的地方
+      </div>
+
+      <div class="start-row">
+        <button id="startBtn" class="pixel-btn">
+          <span class="arrow"></span>
+          开始游玩
+        </button>
+        <div class="enter-hint">或按 ENTER</div>
+      </div>
+    </div>
+
+    <div class="foot">THREE.JS · 体素海洋 · v1.0</div>
+  </div>
+
+  <!-- ══════════ 游戏 HUD ══════════ -->
+  <div id="hud">
+    <div id="title" class="panel">
+      <span class="logo"></span>
+      <span class="name">PIXEL ABYSS</span>
+      <span class="sep">/</span>
+      <span class="sub">像素深海</span>
+    </div>
+
+    <div id="mode" class="panel"><span class="dot"></span><span id="modeText">跟随中</span></div>
+
+    <!-- 视角切换 -->
+    <div id="viewBtns">
+      <button class="pixel-btn ghost" data-view="follow" title="第三人称跟随">
+        <span class="icon">◉</span>
+        跟随
+      </button>
+      <button class="pixel-btn ghost" data-view="first" title="鲸鱼第一人称">
+        <span class="icon">👁</span>
+        第一人称
+      </button>
+      <button class="pixel-btn ghost" data-view="free" title="自由飞行">
+        <span class="icon">✥</span>
+        自由飞行
+      </button>
+    </div>
+
+    <div id="hint" class="panel">
+      <div class="row">
+        <span class="keys">
+          <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span>
+        </span>
+        <span class="label">飞行</span>
+      </div>
+      <div class="row">
+        <span class="key wide accent">空格</span>
+        <span class="label">升起</span>
+        <span class="plus">·</span>
+        <span class="key wide accent">Ctrl</span>
+        <span class="label">下降</span>
+      </div>
+      <div class="row">
+        <span class="key xwide">Shift</span>
+        <span class="label">加速</span>
+        <span class="plus">·</span>
+        <span class="key xwide">拖拽</span>
+        <span class="label">转视角</span>
+      </div>
+      <div class="row">
+        <span class="key">V</span>
+        <span class="label">切换视角</span>
+      </div>
+      <div class="row">
+        <span class="label" style="opacity:.55">停手 2.5 秒 → 自动跟随鲸鱼</span>
+      </div>
+    </div>
+
+    <div id="stats" class="panel"></div>
+  </div>
+
+  <!-- ══════════ 加载层 ══════════ -->
+  <div id="boot">
+    <div style="text-align:center">
+      LOADING
+      <div class="bar"><i></i></div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

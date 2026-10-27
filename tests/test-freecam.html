@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>WASD 相机测试</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../node_modules/three/build/three.module.js",
+        "three/addons/": "../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #06122e; color: #cfe0ff; font: 12px ui-monospace, monospace; }
+    #out { padding: 12px; white-space: pre; line-height: 1.7; }
+    .ok { color: #4ade80; }
+    .bad { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div id="out">running…</div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { FreeFlyCamera } from '../src/freeCam.js';
+
+    const lines = [];
+    const log = (s) => { lines.push(s); };
+    const ok = (cond, label, detail = '') =>
+      log(`${cond ? '✅' : '❌'} ${label}${detail ? '  ' + detail : ''}`);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setSize(320, 200, false);
+    document.body.appendChild(renderer.domElement);
+    const canvas = renderer.domElement;
+
+    const camera = new THREE.PerspectiveCamera(50, 1.6, 0.1, 500);
+    camera.position.set(0, 0, 0);
+    camera.lookAt(0, 0, -1); // 朝 -Z
+
+    const cam = new FreeFlyCamera(camera, canvas, {
+      speed: 10, boost: 2.5, accel: 10, lookSpeed: 0.002, idleDelay: 0.5,
+    });
+
+    const dt = 1 / 60;
+    const press = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true }));
+    const release = (code) => window.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+
+    function run(seconds) {
+      const n = Math.round(seconds / dt);
+      for (let i = 0; i < n; i++) cam.update(dt);
+    }
+
+    // ── 测试 1：W 前进（应沿 -Z 移动）──
+    camera.position.set(0, 0, 0);
+    press('KeyW');
+    run(1);
+    release('KeyW');
+    ok(camera.position.z < -3, 'W 前进（-Z 方向）',
+      `z=${camera.position.z.toFixed(2)}`);
+    ok(Math.abs(camera.position.x) < 0.01 && Math.abs(camera.position.y) < 0.01,
+      'W 前进时没有横向漂移');
+
+    // ── 测试 2：S 后退 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyS');
+    run(1);
+    release('KeyS');
+    ok(camera.position.z > 3, 'S 后退（+Z 方向）', `z=${camera.position.z.toFixed(2)}`);
+
+    // ── 测试 3：D 右移 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyD');
+    run(1);
+    release('KeyD');
+    ok(camera.position.x > 3, 'D 右移（+X 方向）', `x=${camera.position.x.toFixed(2)}`);
+
+    // ── 测试 4：A 左移 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyA');
+    run(1);
+    release('KeyA');
+    ok(camera.position.x < -3, 'A 左移（-X 方向）', `x=${camera.position.x.toFixed(2)}`);
+
+    // ── 测试 5：E 上升 / Q 下降 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyE');
+    run(1);
+    release('KeyE');
+    ok(camera.position.y > 3, 'E 上升（+Y）', `y=${camera.position.y.toFixed(2)}`);
+
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyQ');
+    run(1);
+    release('KeyQ');
+    ok(camera.position.y < -3, 'Q 下降（-Y）', `y=${camera.position.y.toFixed(2)}`);
+
+    // ── 测试 6：Shift 加速 ──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyW');
+    run(1);
+    const normalDist = Math.abs(camera.position.z);
+    release('KeyW');
+
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('ShiftLeft');
+    press('KeyW');
+    run(1);
+    const boostDist = Math.abs(camera.position.z);
+    release('KeyW');
+    release('ShiftLeft');
+    ok(boostDist > normalDist * 1.5, 'Shift 加速',
+      `普通 ${normalDist.toFixed(1)} → 加速 ${boostDist.toFixed(1)}`);
+
+    // ── 测试 7：平滑起停（不能一帧到位）──
+    camera.position.set(0, 0, 0);
+    cam.velocity.set(0, 0, 0);
+    press('KeyW');
+    cam.update(dt);
+    const firstFrameMove = Math.abs(camera.position.z);
+    const maxFrameMove = 10 * dt;
+    ok(firstFrameMove < maxFrameMove * 0.3, '起步平滑（不瞬间满速）',
+      `首帧位移 ${firstFrameMove.toFixed(3)} < 满速帧位移 ${maxFrameMove.toFixed(3)}`);
+
+    // 松开后应减速而不是急停
+    run(0.1);
+    release('KeyW');
+    const beforeRelease = cam.velocity.length();
+    cam.update(dt);
+    const afterOneFrame = cam.velocity.length();
+    ok(afterOneFrame > beforeRelease * 0.7, '松开后平滑减速（不急停）',
+      `${beforeRelease.toFixed(2)} → ${afterOneFrame.toFixed(2)}`);
+
+    // ── 测试 8：鼠标拖拽转视角 ──
+    camera.position.set(0, 0, 0);
+    const yawBefore = cam.yaw;
+    canvas.dispatchEvent(new PointerEvent('pointerdown', {
+      clientX: 100, clientY: 100, pointerId: 1, bubbles: true,
+    }));
+    window.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: 200, clientY: 100, pointerId: 1, bubbles: true,
+    }));
+    window.dispatchEvent(new PointerEvent('pointerup', {
+      clientX: 200, clientY: 100, pointerId: 1, bubbles: true,
+    }));
+    ok(Math.abs(cam.yaw - yawBefore) > 0.1, '鼠标拖拽改变朝向',
+      `yaw ${yawBefore.toFixed(2)} → ${cam.yaw.toFixed(2)}`);
+
+    // ── 测试 9：空闲后自动退出 ──
+    cam.keys.clear();
+    cam.dragging = false;
+    cam.idleTime = 0;
+    let exited = false;
+    const origExit = cam.exit.bind(cam);
+    cam.exit = () => { exited = true; origExit(); };
+    run(0.6);
+    ok(cam.isIdle() || exited, '无操作 0.5 秒后判定空闲');
+
+    // ── 测试 10：边界约束 ──
+    const bounded = new FreeFlyCamera(camera, canvas, {
+      speed: 100, accel: 50, bounds: { x: 20, z: 20 }, minY: 0, maxY: 30,
+    });
+    camera.position.set(0, 5, 0);
+    camera.lookAt(0, 5, -1);
+    bounded.enter();
+    bounded.keys.add('forward');
+    for (let i = 0; i < 300; i++) bounded.update(dt);
+    ok(camera.position.z >= -20.01, '边界约束生效', `z=${camera.position.z.toFixed(2)} (下限 -20)`);
+    ok(camera.position.y >= 0, '高度下限生效', `y=${camera.position.y.toFixed(2)}`);
+    bounded.dispose();
+
+    const passed = lines.filter((l) => l.startsWith('✅')).length;
+    const failed = lines.filter((l) => l.startsWith('❌')).length;
+
+    document.getElementById('out').innerHTML =
+      lines.map((l) => `<div class="${l.startsWith('✅') ? 'ok' : l.startsWith('❌') ? 'bad' : ''}">${l}</div>`).join('') +
+      `<div style="margin-top:12px">通过 ${passed} / ${passed + failed}</div>`;
+
+    document.body.dataset.done = failed === 0 ? 'pass' : 'fail';
+    window.__RESULT__ = { passed, failed };
+  </script>
+</body>
+</html>

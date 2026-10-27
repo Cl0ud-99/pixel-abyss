@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>开屏 + 视角按钮集成测试</title>
+  <style>html,body{margin:0;background:#06122e;color:#cfe0ff;font:12px ui-monospace,monospace}</style>
+</head>
+<body>
+  <pre id="out" style="padding:12px;white-space:pre-wrap;line-height:1.8">running…</pre>
+  <script type="module">
+    const lines = [];
+    const log = (s) => lines.push(s);
+    const ok = (c, label, detail = '') => log(`${c ? '✅' : '❌'} ${label}${detail ? '  ' + detail : ''}`);
+
+    // 用 iframe 加载真实页面
+    const frame = document.createElement('iframe');
+    frame.src = '../index.html';
+    frame.style.cssText = 'position:fixed;left:-9999px;width:1200px;height:800px;border:0';
+    document.body.appendChild(frame);
+
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    await new Promise((r) => {
+      if (frame.contentDocument?.readyState === 'complete') r();
+      else frame.addEventListener('load', r, { once: true });
+    });
+    await wait(2500); // 等场景初始化
+
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+
+    // ── 1. 开屏页存在 ──
+    const splash = doc.getElementById('splash');
+    ok(!!splash, '开屏页存在');
+    ok(!splash.classList.contains('hide'), '开屏页初始可见');
+
+    // ── 2. HUD 初始隐藏 ──
+    const hud = doc.getElementById('hud');
+    ok(!hud.classList.contains('show'), 'HUD 初始隐藏');
+
+    // ── 3. 标题和按钮文字 ──
+    const h1 = doc.querySelector('#splash h1');
+    const titleText = h1 ? h1.textContent.replace(/\s+/g, ' ').trim() : '';
+    ok(/PIXEL/i.test(titleText) && /ABYSS/i.test(titleText), '项目名 PIXEL ABYSS', titleText);
+    const cn = doc.querySelector('#splash .cn-name');
+    ok(cn && cn.textContent.includes('像素深海'), '中文名「像素深海」');
+
+    const startBtn = doc.getElementById('startBtn');
+    ok(!!startBtn, '开始按钮存在');
+    ok(startBtn && startBtn.textContent.includes('开始游玩'), '按钮文字「开始游玩」');
+
+    // ── 4. 点击开始 ──
+    startBtn.click();
+    await wait(900);
+    ok(splash.classList.contains('hide'), '点击后开屏页隐藏');
+    ok(hud.classList.contains('show'), '点击后 HUD 显示');
+    ok(win.__GAME__?.started === true, '游戏状态标记为已开始');
+
+    // ── 5. 视角按钮 ──
+    const btns = Array.from(doc.querySelectorAll('#viewBtns .pixel-btn'));
+    ok(btns.length === 3, '有 3 个视角按钮', `实际 ${btns.length} 个`);
+    const labels = btns.map((b) => b.textContent.trim());
+    ok(labels.some((l) => l.includes('跟随')), '有「跟随」按钮');
+    ok(labels.some((l) => l.includes('第一人称')), '有「第一人称」按钮');
+    ok(labels.some((l) => l.includes('自由飞行')), '有「自由飞行」按钮');
+
+    // ── 6. 初始高亮「跟随」──
+    const followBtn = btns.find((b) => b.dataset.view === 'follow');
+    ok(followBtn.classList.contains('active'), '初始高亮「跟随」');
+
+    // ── 7. 点击第一人称 ──
+    const fpBtn = btns.find((b) => b.dataset.view === 'first');
+    fpBtn.click();
+    await wait(700);
+    ok(win.__GAME__.viewMode === 'first', '切换到第一人称', `mode=${win.__GAME__.viewMode}`);
+    ok(fpBtn.classList.contains('active'), '「第一人称」按钮高亮');
+    ok(!followBtn.classList.contains('active'), '「跟随」按钮取消高亮');
+    const modeText = doc.getElementById('modeText').textContent;
+    ok(modeText === '第一人称', '模式徽章显示「第一人称」', modeText);
+    const modeEl = doc.getElementById('mode');
+    ok(modeEl.classList.contains('fp'), '徽章切换为第一人称配色');
+
+    // ── 8. 点击自由飞行 ──
+    const freeBtn = btns.find((b) => b.dataset.view === 'free');
+    freeBtn.click();
+    await wait(700);
+    ok(win.__GAME__.viewMode === 'free', '切换到自由飞行', `mode=${win.__GAME__.viewMode}`);
+    ok(freeBtn.classList.contains('active'), '「自由飞行」按钮高亮');
+    ok(doc.getElementById('modeText').textContent === '自由飞行', '徽章显示「自由飞行」');
+
+    // ── 9. 切回跟随 ──
+    followBtn.click();
+    await wait(700);
+    ok(win.__GAME__.viewMode === 'follow', '切回跟随');
+    ok(followBtn.classList.contains('active'), '「跟随」重新高亮');
+
+    // ── 10. V 键循环 ──
+    const before = win.__GAME__.viewMode;
+    win.dispatchEvent(new win.KeyboardEvent('keydown', { code: 'KeyV', bubbles: true, cancelable: true }));
+    await wait(500);
+    const after = win.__GAME__.viewMode;
+    ok(after !== before, 'V 键能切换视角', `${before} → ${after}`);
+
+    const passed = lines.filter((l) => l.startsWith('✅')).length;
+    const failed = lines.filter((l) => l.startsWith('❌')).length;
+
+    document.getElementById('out').innerHTML =
+      lines.map((l) => `<div style="color:${l.startsWith('✅') ? '#4ade80' : l.startsWith('❌') ? '#f87171' : '#cfe0ff'}">${l}</div>`).join('') +
+      `<div style="margin-top:12px">通过 ${passed} / ${passed + failed}</div>`;
+
+    document.body.dataset.done = failed === 0 ? 'pass' : 'fail';
+  </script>
+</body>
+</html>

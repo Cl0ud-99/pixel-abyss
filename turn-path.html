@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>转弯轨迹可视化</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #08122e; }
+    canvas { display: block; }
+    #hud { position: fixed; left: 10px; top: 8px; color: #cfe0ff; font: 12px ui-monospace, monospace; white-space: pre; }
+  </style>
+</head>
+<body>
+  <div id="hud"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { WhaleSwimmer } from './src/whaleAI.js';
+
+    const W = 1200, H = 760;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(W, H, false);
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a1738);
+
+    const camera = new THREE.PerspectiveCamera(45, W / H, 0.5, 600);
+    camera.position.set(0, 150, 0.1);
+    camera.lookAt(0, 0, 0);
+
+    // 边界框
+    const boxGeo = new THREE.BoxGeometry(124, 40, 124);
+    const boxEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(boxGeo),
+      new THREE.LineBasicMaterial({ color: 0x2a4a8a })
+    );
+    scene.add(boxEdges);
+
+    // 网格地面参考
+    const grid = new THREE.GridHelper(124, 24, 0x1e3a6a, 0x16294a);
+    grid.position.y = -20;
+    scene.add(grid);
+
+    const root = new THREE.Group();
+    scene.add(root);
+
+    const sw = new WhaleSwimmer({
+      root,
+      bounds: { x: 62, y: 20, z: 62 },
+      margin: 12, speed: 4.2, turnRate: 1.05, turnGain: 2.0,
+      turnAccel: 2.4, bankAmount: 0.26, maxBank: 0.42,
+      minY: -5, maxY: 11,
+    });
+
+    // 轨迹：用颜色表示角速度大小（越红转得越急）
+    const positions = [];
+    const colors = [];
+    const dt = 1 / 60;
+    const SECONDS = 150;
+
+    let prev = sw.pos.clone();
+    let maxYawRate = 0;
+
+    for (let i = 0; i < 60 * SECONDS; i++) {
+      sw.update(dt);
+      if (i % 3 === 0) {
+        positions.push(sw.pos.x, sw.pos.y, sw.pos.z);
+        maxYawRate = Math.max(maxYawRate, Math.abs(sw.yawRate));
+        const t = Math.min(1, Math.abs(sw.yawRate) / 1.05);
+        // 蓝 → 青 → 黄 → 红
+        const c = new THREE.Color().setHSL(0.6 - 0.6 * t, 0.9, 0.5);
+        colors.push(c.r, c.g, c.b);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true })));
+
+    // 起点
+    const start = new THREE.Mesh(
+      new THREE.SphereGeometry(2, 10, 10),
+      new THREE.MeshBasicMaterial({ color: 0x44ff88 })
+    );
+    start.position.set(positions[0], positions[1], positions[2]);
+    scene.add(start);
+
+    // 当前鲸鱼位置
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(2.4, 10, 10),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    marker.position.copy(sw.pos);
+    scene.add(marker);
+
+    // 朝向指示线
+    const fwd = new THREE.Vector3(Math.sin(sw.heading), 0, Math.cos(sw.heading));
+    scene.add(new THREE.ArrowHelper(fwd, sw.pos.clone(), 14, 0x00e5ff, 4, 2));
+
+    renderer.render(scene, camera);
+
+    document.getElementById('hud').textContent =
+      `${SECONDS} 秒轨迹（俯视）\n` +
+      `线色：蓝=直行  红=急转\n` +
+      `最大角速度：${maxYawRate.toFixed(2)} rad/s（上限 1.05）${maxYawRate <= 1.06 ? ' ✅' : ' ❌ 超限'}\n` +
+      `绿点=起点  白点=终点  青箭头=当前朝向`;
+    document.body.dataset.done = '1';
+  </script>
+</body>
+</html>

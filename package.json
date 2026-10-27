@@ -1,0 +1,14 @@
+{
+  "name": "pixel-whale",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "DeepSeek 像素蓝鲸 —— three.js 体素场景",
+  "scripts": {
+    "dev": "node serve.mjs",
+    "start": "node serve.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  }
+}

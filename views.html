@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>views</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+  <style>body{margin:0;background:#050b24;display:grid;grid-template-columns:1fr 1fr} canvas{display:block}</style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'three';
+    import { buildWhale, PALETTE, VOXEL } from './src/whaleShape.js';
+
+    const { voxels } = buildWhale();
+    const colorOf = (kind) => new THREE.Color(PALETTE[kind] || PALETTE.mid).convertSRGBToLinear();
+
+    const views = [
+      { name: 'side', pos: [2, 3, 16] },
+      { name: 'three-quarter', pos: [12, 8, 13] },
+      { name: 'top', pos: [2, 19, 2] },
+      { name: 'front', pos: [-18, 3, 3] },
+    ];
+
+    const W = 500, H = 620;
+
+    views.forEach((v) => {
+      const renderer = new THREE.WebGLRenderer({ antialias: false });
+      renderer.setPixelRatio(1);
+      renderer.setSize(W, H, false);
+      renderer.toneMapping = THREE.NoToneMapping;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0B1B57);
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x223366, 2.2));
+      const key = new THREE.DirectionalLight(0xffffff, 3.0);
+      key.position.set(-18, 26, 20);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0x88aaff, 2.0);
+      rim.position.set(20, 10, -22);
+      scene.add(rim);
+
+      const geo = new THREE.BoxGeometry(VOXEL * 0.97, VOXEL * 0.97, VOXEL * 0.97);
+      const mat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.62 });
+      const mesh = new THREE.InstancedMesh(geo, mat, voxels.length);
+      const m4 = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const p = new THREE.Vector3();
+      const one = new THREE.Vector3(1, 1, 1);
+      voxels.forEach((vx, i) => {
+        p.set(vx.x * VOXEL, vx.y * VOXEL, vx.z * VOXEL);
+        m4.compose(p, q, one);
+        mesh.setMatrixAt(i, m4);
+        mesh.setColorAt(i, colorOf(vx.kind));
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.instanceColor.needsUpdate = true;
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+
+      const camera = new THREE.PerspectiveCamera(40, W / H, 0.5, 400);
+      camera.position.set(...v.pos);
+      camera.lookAt(0, 0, 0);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+</html>

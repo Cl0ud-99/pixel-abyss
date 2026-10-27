@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>开屏 + 第一人称测试</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../node_modules/three/build/three.module.js",
+        "three/addons/": "../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #06122e; color: #cfe0ff; font: 12px ui-monospace, monospace; }
+    #out { padding: 12px; white-space: pre; line-height: 1.8; }
+    .ok { color: #4ade80; }
+    .bad { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div id="out">running…</div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { WhaleSwimmer } from '../src/whaleAI.js';
+    import { FirstPersonCamera } from '../src/firstPerson.js';
+    import { spawnBubbles, buildLogoMark } from '../src/splash.js';
+
+    const lines = [];
+    const log = (s) => lines.push(s);
+    const ok = (c, label, detail = '') => log(`${c ? '✅' : '❌'} ${label}${detail ? '  ' + detail : ''}`);
+
+    // ── 1. 开屏装饰能生成 DOM ──
+    const bub = document.createElement('div');
+    spawnBubbles(bub, 10);
+    ok(bub.children.length === 10, '气泡生成', `生成 ${bub.children.length} 个`);
+
+    const logo = document.createElement('div');
+    buildLogoMark(logo);
+    ok(logo.children.length > 60, '像素标志生成', `生成 ${logo.children.length} 个像素块`);
+    ok(logo.style.width !== '', '标志有明确尺寸', `${logo.style.width} x ${logo.style.height}`);
+
+    // ── 2. 第一人称相机 ──
+    const camera = new THREE.PerspectiveCamera(45, 1.6, 0.1, 500);
+    const root = new THREE.Group();
+    const swimmer = new WhaleSwimmer({
+      root, bounds: { x: 62, y: 20, z: 62 }, margin: 12,
+      speed: 4.2, turnRate: 1.05, turnGain: 2.0, turnAccel: 2.4,
+      minY: 2, maxY: 14,
+    });
+
+    const fp = new FirstPersonCamera(camera, { fov: 74 });
+    const dt = 1 / 60;
+
+    // 先跑一会儿让鲸鱼游起来
+    for (let i = 0; i < 60 * 3; i++) swimmer.update(dt);
+
+    const fovBefore = camera.fov;
+    fp.enter(swimmer);
+    ok(fp.active, '进入第一人称');
+    ok(camera.fov === 74, 'FOV 切换到 74', `${fovBefore} → ${camera.fov}`);
+
+    // ── 3. 相机应该贴在鲸鱼头上（离鲸鱼中心约 1.5 单位）──
+    for (let i = 0; i < 30; i++) { swimmer.update(dt); fp.update(dt, swimmer); }
+    const distToWhale = camera.position.distanceTo(swimmer.pos);
+    ok(distToWhale < 2.5, '相机贴在鲸鱼头部',
+      `距鲸鱼中心 ${distToWhale.toFixed(2)} 单位（模型头在 -14.6 素 = -1.46）`);
+    ok(distToWhale > 1.0, '相机没有陷进身体内部', `距离 ${distToWhale.toFixed(2)}`);
+
+    // ── 4. 相机朝向应接近鲸鱼前进方向 ──
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const fwd = new THREE.Vector3(
+      Math.sin(swimmer.heading), 0, Math.cos(swimmer.heading)
+    );
+    const dot = dir.clone().setY(0).normalize().dot(fwd);
+    ok(dot > 0.9, '相机朝向前方（和鲸鱼同向）', `点积 ${dot.toFixed(3)}`);
+
+    // ── 5. 相机随鲸鱼移动 ──
+    const posA = camera.position.clone();
+    for (let i = 0; i < 60; i++) { swimmer.update(dt); fp.update(dt, swimmer); }
+    const moved = camera.position.distanceTo(posA);
+    ok(moved > 2, '相机跟随鲸鱼移动', `1 秒移动 ${moved.toFixed(2)} 单位`);
+
+    // ── 6. 退出后恢复 FOV ──
+    fp.exit();
+    ok(!fp.active, '退出第一人称');
+    ok(camera.fov === 45, 'FOV 恢复', `恢复为 ${camera.fov}`);
+
+    // ── 7. 重复进出不出错 ──
+    fp.enter(swimmer);
+    fp.update(dt, swimmer);
+    fp.exit();
+    fp.enter(swimmer);
+    fp.update(dt, swimmer);
+    ok(fp.active && camera.fov === 74, '可重复进出');
+
+    // ── 8. 转弯时相机有侧倾（平滑后需要多帧才显现）──
+    fp.exit();
+    fp.enter(swimmer);
+    // 先跑几帧让朝向稳定
+    for (let i = 0; i < 30; i++) { swimmer.update(dt); fp.update(dt, swimmer); }
+
+    // 记录无转弯时的「右向量」
+    swimmer.yawRate = 0;
+    swimmer.smoothYawRate = 0;
+    for (let i = 0; i < 40; i++) fp.update(dt, swimmer);
+    const rightNoTurn = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+    // 持续转弯，让平滑后的侧倾积累起来
+    swimmer.yawRate = 1.2;
+    swimmer.smoothYawRate = 1.2;
+    for (let i = 0; i < 60; i++) fp.update(dt, swimmer);
+    const rightTurning = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+    const rollDelta = Math.abs(rightTurning.y - rightNoTurn.y);
+    ok(rollDelta > 0.03, '转弯时相机有侧倾',
+      `右向量 y: ${rightNoTurn.y.toFixed(3)} → ${rightTurning.y.toFixed(3)}（滚转 ${(Math.asin(Math.min(1, Math.abs(rightTurning.y))) * 180 / Math.PI).toFixed(1)}°）`);
+
+    // ── 9. 侧倾有上限（不会甩过头）──
+    ok(Math.abs(rightTurning.y) <= 0.2, '侧倾被限幅（不超过 ~11°）',
+      `|rightY| = ${Math.abs(rightTurning.y).toFixed(3)}`);
+
+    // ── 10. 单帧侧倾变化很小（不抖）──
+    swimmer.smoothYawRate = 0;
+    for (let i = 0; i < 30; i++) fp.update(dt, swimmer);
+    const rBefore = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    swimmer.yawRate = 1.2;
+    swimmer.smoothYawRate = 1.2;
+    fp.update(dt, swimmer); // 只跑一帧
+    const rAfter = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const oneFrameDelta = Math.abs(rAfter.y - rBefore.y);
+    ok(oneFrameDelta < 0.02, '单帧侧倾变化很小（镜头不抖）',
+      `单帧变化 ${oneFrameDelta.toFixed(4)}`);
+
+    const passed = lines.filter((l) => l.startsWith('✅')).length;
+    const failed = lines.filter((l) => l.startsWith('❌')).length;
+
+    document.getElementById('out').innerHTML =
+      lines.map((l) => `<div class="${l.startsWith('✅') ? 'ok' : l.startsWith('❌') ? 'bad' : ''}">${l}</div>`).join('') +
+      `<div style="margin-top:12px">通过 ${passed} / ${passed + failed}</div>`;
+
+    document.body.dataset.done = failed === 0 ? 'pass' : 'fail';
+    window.__RESULT__ = { passed, failed };
+  </script>
+</body>
+</html>
