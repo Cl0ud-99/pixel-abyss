@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>地形剖面检查</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #050B24; color: #cfe0ff; font: 12px ui-monospace, monospace; }
+    #wrap { position: relative; }
+    canvas { display: block; }
+    #hud { position: absolute; left: 12px; top: 10px; white-space: pre; line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <div id="wrap"><div id="hud"></div></div>
+  <script type="module">
+    import * as THREE from 'three';
+
+    // 和 main.js 完全一致的地形函数
+    function terrainHeight(x, z) {
+      return (
+        Math.sin(x * 0.080 + Math.cos(z * 0.055) * 1.2) * 3.5 +
+        Math.sin(z * 0.072 + Math.sin(x * 0.061) * 1.0) * 2.2 +
+        Math.sin(x * 0.180 - z * 0.160) * 1.0 +
+        Math.sin(x * 0.400 + z * 0.360) * 0.35
+      );
+    }
+
+    const SEABED_Y = -54;
+    const W = 1400, H = 700;
+
+    // 用正交相机看「地形剖面」：把 z 固定，沿 x 方向切片
+    const scenes = [];
+
+    // ── 左：侧视剖面（把高度放大 4 倍，让形状可见）──
+    function buildProfile(exaggerate) {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1738);
+
+      const pts = [];
+      for (let x = -140; x <= 140; x += 1) {
+        pts.push(new THREE.Vector3(x, terrainHeight(x, 0) * exaggerate, 0));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x7fd6ff })));
+
+      // 参考：y=0 基线
+      const base = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-140, 0, 0), new THREE.Vector3(140, 0, 0),
+      ]);
+      scene.add(new THREE.Line(base, new THREE.LineBasicMaterial({ color: 0x335, })));
+
+      return scene;
+    }
+
+    // ── 右：真实场景的斜视角 ──
+    function buildSceneTiles() {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1738);
+      scene.add(new THREE.HemisphereLight(0xE0ECFF, 0x2A3A8A, 3.4));
+      const key = new THREE.DirectionalLight(0xffffff, 3);
+      key.position.set(-20, 40, 20);
+      scene.add(key);
+
+      const TILE = 3.4, RANGE = 100;
+      const geo = new THREE.BoxGeometry(TILE * 1.04, 0.8, TILE * 1.04);
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#6B7FA8').convertSRGBToLinear(),
+        flatShading: true, roughness: 0.95,
+      });
+      const cells = [];
+      for (let x = -RANGE; x <= RANGE; x += TILE)
+        for (let z = -RANGE; z <= RANGE; z += TILE) {
+          if (Math.hypot(x, z) > RANGE) continue;
+          cells.push({ x, z, y: terrainHeight(x, z) });
+        }
+      const mesh = new THREE.InstancedMesh(geo, mat, cells.length);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+            p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+      cells.forEach((c, i) => {
+        p.set(c.x, SEABED_Y + c.y - 0.4, c.z);
+        m.compose(p, q, one);
+        mesh.setMatrixAt(i, m);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      scene.add(mesh);
+      return scene;
+    }
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(1);
+    renderer.setSize(W, H, false);
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.getElementById('wrap').appendChild(renderer.domElement);
+
+    // 上下两块：上=剖面(放大4倍)，下=真实斜视
+    renderer.setScissorTest(true);
+
+    // 上半：剖面
+    {
+      const scene = buildProfile(4);
+      const cam = new THREE.PerspectiveCamera(30, W / (H / 2), 1, 2000);
+      cam.position.set(0, 10, 420);
+      cam.lookAt(0, 0, 0);
+      renderer.setViewport(0, H / 2, W, H / 2);
+      renderer.setScissor(0, H / 2, W, H / 2);
+      renderer.render(scene, cam);
+    }
+
+    // 下半：真实斜视（低机位，模拟玩家视角）
+    {
+      const scene = buildSceneTiles();
+      const cam = new THREE.PerspectiveCamera(50, W / (H / 2), 1, 2000);
+      cam.position.set(30, SEABED_Y + 26, 90);
+      cam.lookAt(0, SEABED_Y, 0);
+      renderer.setViewport(0, 0, W, H / 2);
+      renderer.setScissor(0, 0, W, H / 2);
+      renderer.render(scene, cam);
+    }
+
+    document.getElementById('hud').textContent =
+      '上：地形剖面（高度×4 放大）x ∈ [-140, 140]\n' +
+      '下：实际渲染斜视角（机位在海床上方 26 单位）';
+    document.body.dataset.done = '1';
+  </script>
+</body>
+</html>
