@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildWhale, PALETTE, VOXEL } from './whaleShape.js';
 import {
   buildClownfish, buildBlueTang, buildYellowFish, buildAngelfish,
+  buildPufferfish, buildSwordfish,
   buildJellyfish, buildTurtle, buildOctopus, buildStarfish,
   buildCoral, buildSeagrass,
 } from './creatures.js';
@@ -339,16 +340,39 @@ scene.add(angelfishSchool.group);
 // ─────────────────────────────────────────────────────────────
 // 伴游鱼群：跟着鲸鱼游的小鱼
 //   这是「主角有生态感」最划算的一笔，代码复用 InstancedGroup，
-//   只多占 1 个 draw call。
+//   每种只多占 1 个 draw call。
+//
+//   之前是 16 条黄鱼，太多太杂。现在减少 70%（16 → 5 条），
+//   再加入两个外形差别很大的新品种，让鱼群有「物种层次」。
 // ─────────────────────────────────────────────────────────────
 const companions = new CompanionSchool({
   build: buildYellowFish,
   scale: 4.2, // 鲸鱼放大 3 倍后，伴游鱼也要够大才看得见
-  count: 16,
+  count: 5, // 16 → 5，减少约 70%
   radius: 16, // 基础跟随半径（鲸鱼体长约 12）
   spread: 9,
 });
 scene.add(companions.group);
+
+// 河豚：圆滚滚的，慢悠悠跟在侧后方
+const companionPuffers = new CompanionSchool({
+  build: buildPufferfish,
+  scale: 3.6,
+  count: 3,
+  radius: 13,
+  spread: 7,
+});
+scene.add(companionPuffers.group);
+
+// 旗鱼：细长流线型，速度更快，喜欢游在更外圈
+const companionSwords = new CompanionSchool({
+  build: buildSwordfish,
+  scale: 3.4,
+  count: 2,
+  radius: 21,
+  spread: 11,
+});
+scene.add(companionSwords.group);
 
 // ─────────────────────────────────────────────────────────────
 // 水母 / 海龟 / 章鱼
@@ -621,6 +645,8 @@ function animate() {
 
   // 伴游鱼群（跟着鲸鱼）
   companions.update(t, dt, swimmer);
+  companionPuffers.update(t, dt, swimmer);
+  companionSwords.update(t, dt, swimmer);
 
   // 水母 / 海龟 / 章鱼 / 海草
   jellyfishGroup.update(t, dt);

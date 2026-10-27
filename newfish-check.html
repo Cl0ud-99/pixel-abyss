@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>新鱼种检查</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #0B1B57; display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; padding: 3px; }
+    figure { margin: 0; position: relative; }
+    figcaption { position: absolute; left: 10px; bottom: 8px; color: #CFE0FF; font: 13px ui-monospace, monospace; }
+    canvas { display: block; width: 100%; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'three';
+    import { VOXEL } from './src/voxel.js';
+    import { buildPufferfish, buildSwordfish, buildYellowFish } from './src/creatures.js';
+
+    const list = [
+      ['河豚 pufferfish', buildPufferfish],
+      ['旗鱼 swordfish', buildSwordfish],
+      ['黄鱼 yellowFish（对比）', buildYellowFish],
+    ];
+
+    const W = 660, H = 460;
+
+    function render(build, viewName, pos) {
+      const renderer = new THREE.WebGLRenderer({ antialias: false });
+      renderer.setPixelRatio(1);
+      renderer.setSize(W, H, false);
+      renderer.toneMapping = THREE.NoToneMapping;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x12306E);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x223366, 2.6));
+      const key = new THREE.DirectionalLight(0xffffff, 3.2);
+      key.position.set(10, 20, 14);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0xaaccff, 1.8);
+      fill.position.set(-12, -10, 8);
+      scene.add(fill);
+
+      const data = build();
+      const root = new THREE.Group();
+      for (const part of data.parts) {
+        const colorOf = (k) => new THREE.Color(data.palette[k] || '#888').convertSRGBToLinear();
+        const geo = new THREE.BoxGeometry(VOXEL * 0.96, VOXEL * 0.96, VOXEL * 0.96);
+        const mat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.62 });
+        const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, part.voxels.length));
+        const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+              p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+        part.voxels.forEach((v, i) => {
+          p.set((v.x - part.pivot[0]) * VOXEL, (v.y - part.pivot[1]) * VOXEL, (v.z - part.pivot[2]) * VOXEL);
+          m.compose(p, q, one);
+          mesh.setMatrixAt(i, m);
+          mesh.setColorAt(i, colorOf(v.kind));
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        mesh.frustumCulled = false;
+        const holder = new THREE.Group();
+        holder.position.set(part.pivot[0]*VOXEL, part.pivot[1]*VOXEL, part.pivot[2]*VOXEL);
+        holder.add(mesh);
+        root.add(holder);
+      }
+
+      const box = new THREE.Box3().setFromObject(root);
+      const center = box.getCenter(new THREE.Vector3());
+      root.position.sub(center);
+      scene.add(root);
+
+      const camera = new THREE.PerspectiveCamera(38, W / H, 0.1, 300);
+      camera.position.set(...pos);
+      camera.lookAt(0, 0, 0);
+      renderer.render(scene, camera);
+      return renderer.domElement;
+    }
+
+    // 三个视角：侧面、3/4 前、俯视
+    const views = [
+      ['侧面', [0, 0.6, 6.5]],
+      ['斜前 3/4', [-4.5, 3, 5]],
+      ['俯视', [0, 7, 0.01]],
+    ];
+
+    for (const [label, build] of list) {
+      for (const [vn, pos] of views) {
+        const fig = document.createElement('figure');
+        fig.appendChild(render(build, vn, pos));
+        const cap = document.createElement('figcaption');
+        cap.textContent = label + ' · ' + vn;
+        fig.appendChild(cap);
+        document.body.appendChild(fig);
+      }
+    }
+
+    // 重置为 3 列布局（每个物种一行 3 个视角）
+    document.body.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    document.body.dataset.done = '1';
+  </script>
+</body>
+</html>

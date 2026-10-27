@@ -221,6 +221,203 @@ export function buildAngelfish() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 河豚：圆滚滚的球状身体 + 一身的刺 + 小小的鳍
+// 和现有那些细长的鱼外形差别很大，一眼能认出来
+// ─────────────────────────────────────────────────────────────
+export function buildPufferfish() {
+  const g = new Grid();
+
+  // 身体：接近球体，稍微侧扁一点
+  ellipsoid(g, 0, 0, 0, 4.6, 4.2, 3.4, 'body');
+
+  // 肚皮更亮
+  g.recolor((v) => v.kind === 'body' && v.y < -1.2, 'belly');
+
+  // 背部的深色斑点
+  const spots = [
+    [-2, 2], [1, 3], [3, 1], [-1, 1], [2, -1], [-3, 0], [0, 2],
+  ];
+  for (const [sx, sy] of spots) {
+    g.recolor(
+      (v) => v.kind === 'body' && Math.abs(v.x - sx) <= 1 && Math.abs(v.y - sy) <= 1,
+      'spot'
+    );
+  }
+
+  // 一身的刺：沿球面均匀撒，朝外凸出
+  const R = 4.5;
+  for (let i = 0; i < 26; i++) {
+    // 球面均匀分布
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / 26);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+    const dx = Math.sin(phi) * Math.cos(theta);
+    const dy = Math.cos(phi);
+    const dz = Math.sin(phi) * Math.sin(theta);
+
+    // 只在外侧扎刺，避免在体内出现
+    for (let t = 0.75; t <= 1.15; t += 0.2) {
+      const px = Math.round(dx * R * t);
+      const py = Math.round(dy * (R - 0.3) * t);
+      const pz = Math.round(dz * (R - 1.1) * t);
+      g.set(px, py, pz, 'spike');
+    }
+  }
+
+  // 尾鳍：很小的扇形
+  fillPolyXY(
+    g,
+    [
+      [4, -1.4],
+      [6.4, -2.2],
+      [6.6, 0],
+      [6.4, 2.2],
+      [4, 1.4],
+    ],
+    0,
+    0,
+    'fin'
+  );
+
+  // 背鳍 / 腹鳍：小三角
+  fillPolyXY(g, [[-0.6, 3.8], [1.4, 3.6], [0.6, 5.2]], 0, 0, 'fin');
+  fillPolyXY(g, [[-0.4, -3.9], [1.2, -3.7], [0.5, -5.0]], 0, 0, 'fin');
+
+  // 胸鳍：身体两侧的小圆片
+  for (const side of [-1, 1]) {
+    const z = side * 3;
+    g.set(-1, 0, z, 'finSide');
+    g.set(0, 0, z, 'finSide');
+    g.set(-1, -1, z, 'finSide');
+  }
+
+  // 眼睛：大而圆，很突出
+  for (const side of [-1, 1]) {
+    const ez = side * 2;
+    g.set(-2, 1, ez, 'eye');
+    g.set(-1, 1, ez, 'eye');
+    g.set(-2, 2, ez, 'eye');
+    g.set(-1, 2, ez, 'eye');
+    g.set(-2, 2, ez + side, 'eyeHi');
+  }
+
+  // 小嘴
+  g.set(-4, -1, 0, 'mouth');
+  g.set(-4, -2, 0, 'mouth');
+  g.set(-4, -1, 1, 'mouth');
+  g.set(-4, -1, -1, 'mouth');
+
+  return {
+    parts: [{ name: 'main', voxels: g.toArray(), pivot: [0, 0, 0] }],
+    palette: {
+      back: '#E8B84B',
+      body: '#F2D06B',
+      belly: '#FFF4C9',
+      spot: '#C08A28',
+      spike: '#D9A63C',
+      fin: '#E8B84B',
+      finSide: '#F5DC90',
+      eye: '#0A0A0A',
+      eyeHi: '#FFFFFF',
+      mouth: '#8B5A1E',
+    },
+    length: 12,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 旗鱼：细长流线型 + 长长的尖吻 + 高高的背鳍
+// 和河豚正好形成对比（一个是球，一个是箭）
+// ─────────────────────────────────────────────────────────────
+export function buildSwordfish() {
+  const g = new Grid();
+
+  // 身体：细长的纺锤形，从头到尾逐渐收细
+  ellipsoid(g, 0, 0, 0, 7.0, 2.0, 1.5, 'body');
+  ellipsoid(g, 3.5, 0, 0, 3.6, 1.4, 1.1, 'body');
+  ellipsoid(g, -3.5, 0, 0, 3.4, 1.8, 1.4, 'body');
+
+  // 背部深、腹部浅
+  g.recolor((v) => v.kind === 'body' && v.y > 0.6, 'back');
+  g.recolor((v) => v.kind === 'body' && v.y < -0.8, 'belly');
+
+  // 标志性的长吻：从头部往前伸出一根细长的剑
+  // （放在椭球之后，否则会被 ellipsoid 覆盖掉）
+  // 越往前越细，形成尖锐的剑尖
+  for (let x = -7; x >= -14; x--) {
+    g.set(x, 0, 0, 'bill');
+    if (x > -10) {
+      g.set(x, 0, 1, 'bill');
+      g.set(x, 0, -1, 'bill');
+    }
+    if (x > -8) g.set(x, 1, 0, 'bill');
+  }
+
+  // 高高的背鳍：像帆一样立在背上
+  // 用 3 层厚度（z = -1..1），否则从侧面看是一张纸片
+  fillPolyXY(
+    g,
+    [
+      [-3.2, 1.4],
+      [2.2, 1.4],
+      [1.4, 6.8],
+      [-1.0, 6.4],
+      [-2.4, 5.0],
+    ],
+    -1,
+    1,
+    'fin'
+  );
+
+  // 腹鳍：小的
+  fillPolyXY(g, [[-0.6, -1.5], [1.4, -1.5], [0.5, -3.4]], -1, 1, 'fin');
+
+  // 尾鳍：深叉的新月形
+  fillPolyXY(
+    g,
+    [
+      [6.4, -0.8],
+      [10.0, -3.4],
+      [11.2, -2.6],
+      [8.6, 0],
+      [11.2, 2.6],
+      [10.0, 3.4],
+      [6.4, 0.8],
+    ],
+    -1,
+    1,
+    'fin'
+  );
+
+  // 胸鳍：细长的镰刀形
+  for (const side of [-1, 1]) {
+    const z = side * 1;
+    for (let i = 0; i < 4; i++) {
+      g.set(-2 + i, -1 - i * 0.6, z, 'finSide');
+    }
+  }
+
+  // 眼睛
+  for (const side of [-1, 1]) {
+    g.set(-4, 1, side, 'eye');
+    g.set(-3, 1, side, 'eye');
+  }
+
+  return {
+    parts: [{ name: 'main', voxels: g.toArray(), pivot: [0, 0, 0] }],
+    palette: {
+      back: '#1E3A8A',
+      body: '#3B5BDB',
+      belly: '#C5D2F0',
+      bill: '#8FA3D8',
+      fin: '#2B4BC8',
+      finSide: '#4C6BE0',
+      eye: '#0A0A0A',
+    },
+    length: 22,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
 // 水母：伞盖 + 飘动的触手
 // ─────────────────────────────────────────────────────────────
 export function buildJellyfish() {
