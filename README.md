@@ -5,6 +5,8 @@
 ![开屏页](./preview-splash.png)
 ![第一人称](./preview-firstperson.png)
 
+**[▶ 在线体验](https://cl0ud-99.github.io/pixel-abyss/)** — 打开就能玩，不用安装任何东西
+
 ## 开屏页
 
 进页面先看到开屏页：像素鲸鱼标志、`PIXEL ABYSS` 标题、中文名「像素深海」、上升气泡背景。
@@ -14,16 +16,29 @@
 
 ## 运行
 
+**方式一：直接打开**
+
+因为 three.js 走 CDN（见 `index.html` 的 importmap），仓库是零依赖的。
+但浏览器对 `file://` 的模块加载有限制，建议起个静态服务器：
+
 ```bash
-# 用 DSH 自带的 Node（本机 PATH 里没有 node）
+# Python（系统自带）
+python -m http.server 5178
+
+# 或 Node
+npx serve .
+```
+
+**方式二：用项目自带的服务器**
+
+```bash
 NODE="C:/Users/Administrator/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe"
-
-# 安装依赖（只需一次）
-"$NODE" "C:/Users/Administrator/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/pnpm/bin/pnpm.mjs" add three
-
-# 启动
 "$NODE" serve.mjs
 ```
+
+然后打开 <http://127.0.0.1:5178>。
+
+> 不想用 CDN 也可以：`pnpm add three` 然后把 importmap 改回 `./node_modules/three/...`。
 
 调试参数：
 
