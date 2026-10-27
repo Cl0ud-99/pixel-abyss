@@ -684,5 +684,9 @@ window.__GAME__ = {
   get viewMode() { return viewMode; },
   switchView,
 };
+// 性能体检用的调试句柄
+window.__SCENE__ = scene;
+window.__RENDERER__ = renderer;
+window.__CAMERA__ = camera;
 
 animate();

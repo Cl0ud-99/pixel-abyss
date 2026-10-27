@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>性能体检</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; background: #06122e; color: #cfe0ff; font: 12px ui-monospace, monospace; }
+    #out { padding: 12px; white-space: pre; line-height: 1.8; }
+    .ok { color: #4ade80; } .warn { color: #fbbf24; } .bad { color: #f87171; }
+  </style>
+</head>
+<body>
+  <div id="out">measuring…</div>
+  <iframe id="frame" src="../index.html?skip=1" style="position:fixed;left:-9999px;width:1400px;height:900px;border:0"></iframe>
+  <script type="module">
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const frame = document.getElementById('frame');
+
+    await new Promise((r) => {
+      if (frame.contentDocument?.readyState === 'complete') r();
+      else frame.addEventListener('load', r, { once: true });
+    });
+    await wait(4000);
+
+    const win = frame.contentWindow;
+    const out = [];
+
+    // ── 1. 场景统计 ──
+    const info = (win.__INFO__ || {});
+    out.push(`蓝鲸体素: ${info.voxels ?? '?'}`);
+
+    const scene = win.__SCENE__;
+    if (scene) {
+      let objects = 0, instanced = 0, instances = 0, triangles = 0;
+      scene.traverse((o) => {
+        if (o.isMesh || o.isLine || o.isPoints) objects++;
+        if (o.isInstancedMesh) {
+          instanced++;
+          instances += o.count;
+        }
+      });
+      out.push(`场景对象数: ${objects}`);
+      out.push(`InstancedMesh 数: ${instanced}`);
+      out.push(`实例总数: ${instances}`);
+    }
+
+    // ── 2. 渲染信息 ──
+    const r = win.__RENDERER__;
+    if (r) {
+      out.push(`draw calls: ${r.info.render.calls}`);
+      out.push(`三角形: ${r.info.render.triangles.toLocaleString()}`);
+      out.push(`几何体: ${r.info.memory.geometries}`);
+      out.push(`纹理: ${r.info.memory.textures}`);
+    }
+
+    // ── 3. 渲染器统计（headless 下 rAF 不推进，直接读静态信息）──
+    out.push('');
+
+    // ── 4. 内存 ──
+    if (performance.memory) {
+      const m = performance.memory;
+      out.push(`JS 堆: ${(m.usedJSHeapSize / 1048576).toFixed(1)}MB / ${(m.totalJSHeapSize / 1048576).toFixed(1)}MB`);
+    }
+
+    // ── 5. 画布分辨率 ──
+    const canvas = win.document.querySelector('canvas');
+    if (canvas) {
+      out.push('');
+      out.push(`canvas: ${canvas.width}×${canvas.height}  (CSS ${canvas.style.width}×${canvas.style.height})`);
+      out.push(`devicePixelRatio: ${win.devicePixelRatio}`);
+    }
+
+    // ── 6. 代码体积 ──
+    const scripts = Array.from(win.document.querySelectorAll('script[src]'));
+    out.push('');
+    out.push(`外部脚本: ${scripts.length} 个`);
+
+    document.getElementById('out').innerHTML = out
+      .map((l) => `<div>${l}</div>`)
+      .join('');
+    document.body.dataset.done = '1';
+  </script>
+</body>
+</html>
