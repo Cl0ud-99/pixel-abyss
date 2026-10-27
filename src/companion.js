@@ -18,11 +18,16 @@ import { InstancedGroup, flattenCreature } from './instancedGroup.js';
 const TAU = Math.PI * 2;
 
 export class CompanionSchool {
-  constructor({ build, scale = 1, count = 14, radius = 10, spread = 6 }) {
+  constructor({
+    build, scale = 1, count = 14, radius = 10, spread = 6,
+    // ── wander 模式：不跟随鲸鱼，自己漫游 ──
+    wander = null, // { bounds:{x,y,z}, center?:{x,y,z}, speed?:number }
+  }) {
     this.group = new THREE.Group();
     this.count = count;
     this.radius = radius;
     this.spread = spread;
+    this.wander = wander;
 
     const data = build();
     const voxels = flattenCreature(data);
@@ -47,6 +52,12 @@ export class CompanionSchool {
         wag: 4.5 + Math.random() * 2.5,
         driftPhase: Math.random() * TAU,
         yaw: 0,
+        // ── wander 模式专用 ──
+        // 每只鱼有自己的巡航方向，会随时间缓慢改变
+        wanderAngle: Math.random() * TAU,
+        wanderSpeed: (wander?.speed ?? 6) * (0.75 + Math.random() * 0.5),
+        wanderTurn: (Math.random() - 0.5) * 0.12, // 转向速率（弧度/秒）
+        wanderTimer: Math.random() * 8, // 还有多久换一次方向
       });
     }
 
@@ -72,6 +83,12 @@ export class CompanionSchool {
    * @param {import('./whaleAI.js').WhaleSwimmer} swimmer
    */
   update(t, dt, swimmer) {
+    // wander 模式不需要鲸鱼，直接走独立漫游
+    if (this.wander) {
+      this._updateWander(t, dt);
+      return;
+    }
+
     const pos = swimmer.pos;
     const heading = swimmer.heading;
 
@@ -138,5 +155,100 @@ export class CompanionSchool {
       whalePos.z - this._fwd.z * m.back + this._right.z * m.side
     );
     return out;
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // 独立漫游：不求助于鲸鱼，每条鱼自己按巡航方向游
+  //
+  // 行为：
+  //   - 每只鱼有一个 wanderAngle，随时间缓慢变化（不是直线）
+  //   - 隔一段时间随机换一次转向方向，避免一直绕圈
+  //   - 靠近边界就转向内侧
+  //   - 上下方向轻微正弦起伏
+  // ───────────────────────────────────────────────────────────
+  _updateWander(t, dt) {
+    const B = this.wander.bounds;
+    const cx = this.wander.center?.x ?? 0;
+    const cy = this.wander.center?.y ?? 0;
+    const cz = this.wander.center?.z ?? 0;
+    // 活动半径：留出边界余量
+    const maxR = Math.min(B.x, B.z) * 0.86;
+
+    const n = this.members.length;
+
+    // 首次更新：把鱼撒在活动范围内
+    if (!this._initialized) {
+      this._initialized = true;
+      for (const m of this.members) {
+        const a = Math.random() * TAU;
+        const r = Math.sqrt(Math.random()) * maxR * 0.7;
+        m.pos.set(
+          cx + Math.cos(a) * r,
+          cy + (Math.random() - 0.5) * (B.y * 0.9),
+          cz + Math.sin(a) * r
+        );
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      const m = this.members[i];
+
+      // ── 1. 方向：缓慢变化 + 偶尔换向 ──
+      m.wanderTimer -= dt;
+      if (m.wanderTimer <= 0) {
+        // 换一个新的转向速率和持续时长
+        m.wanderTurn = (Math.random() - 0.5) * 0.35;
+        m.wanderTimer = 4 + Math.random() * 8;
+      }
+      m.wanderAngle += m.wanderTurn * dt;
+
+      // ── 2. 边界避让：离中心太远就往回拐 ──
+      const dx = m.pos.x - cx;
+      const dz = m.pos.z - cz;
+      const r = Math.hypot(dx, dz);
+      if (r > maxR * 0.82) {
+        // 期望方向指向中心
+        const inward = Math.atan2(-dx, -dz);
+        // 沿最短路径转向内侧
+        let diff = inward - m.wanderAngle;
+        while (diff > Math.PI) diff -= TAU;
+        while (diff < -Math.PI) diff += TAU;
+        m.wanderAngle += diff * Math.min(1, dt * 1.8);
+      }
+
+      // ── 3. 前进 ──
+      const vx = Math.sin(m.wanderAngle) * m.wanderSpeed;
+      const vz = Math.cos(m.wanderAngle) * m.wanderSpeed;
+      m.pos.x += vx * dt;
+      m.pos.z += vz * dt;
+
+      // 上下：缓慢正弦，加上边界约束
+      const yTarget = cy + Math.sin(t * 0.32 + m.driftPhase) * (B.y * 0.42);
+      m.pos.y += (yTarget - m.pos.y) * Math.min(1, dt * 0.9);
+
+      // 硬约束兜底
+      const rr = Math.hypot(m.pos.x - cx, m.pos.z - cz);
+      if (rr > maxR) {
+        const k = maxR / rr;
+        m.pos.x = cx + (m.pos.x - cx) * k;
+        m.pos.z = cz + (m.pos.z - cz) * k;
+      }
+      m.pos.y = Math.max(cy - B.y * 0.92, Math.min(cy + B.y * 0.92, m.pos.y));
+
+      // ── 4. 朝向 + 摆尾 ──
+      m.yaw = m.wanderAngle + Math.sin(t * m.wag + m.wobble) * 0.22;
+
+      this._e.set(
+        Math.sin(t * 1.4 + m.wobble) * 0.10,
+        m.yaw,
+        Math.sin(t * 1.1 + m.wobble) * 0.13,
+        'YXZ'
+      );
+      this._q.setFromEuler(this._e);
+      this._s.setScalar(m.scale);
+      this._mats[i].compose(m.pos, this._q, this._s);
+    }
+
+    this.batch.update((j) => this._mats[j]);
   }
 }
