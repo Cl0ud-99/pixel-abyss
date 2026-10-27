@@ -15,11 +15,16 @@ import { spawnBubbles, buildLogoMark, bindStart } from './splash.js';
 // ─────────────────────────────────────────────────────────────
 // 世界尺寸：场景比之前大得多，鲸鱼才有地方真正游起来
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 世界尺寸
+//   从 ±62 扩到 ±140（面积约 5 倍），鲸鱼有更多时间游动，
+//   不会频繁撞到边界、也就不会在墙角打转
+// ─────────────────────────────────────────────────────────────
 const WORLD = {
-  x: 62, // 半宽（总长 124）
-  y: 20, // 半高
-  z: 62,
-  seabedY: -24, // 海床高度
+  x: 140, // 半宽（总长 280）
+  y: 46, // 半高
+  z: 140,
+  seabedY: -54, // 海床高度
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -57,7 +62,7 @@ function gradientTexture() {
   return tex;
 }
 scene.background = gradientTexture();
-scene.fog = new THREE.Fog(0x0B1B57, 80, 260);
+scene.fog = new THREE.Fog(0x0B1B57, 180, 560);
 
 // ─────────────────────────────────────────────────────────────
 // 光照
@@ -164,8 +169,10 @@ const seabedGroup = new THREE.Group();
 scene.add(seabedGroup);
 
 {
-  const TILE = 1.6;
-  const RANGE = 68;
+  // 场景扩大 5 倍后，如果保持原砖块尺寸，海床会有 2.6 万个实例。
+  // 把砖块放大到 3.4，实例数控制在 8000 左右，视觉上仍是体素沙地。
+  const TILE = 3.4;
+  const RANGE = 155;
   // 略微放大，让相邻砖块重叠，避免出现黑缝
   const sandGeo = new THREE.BoxGeometry(TILE * 1.04, 0.8, TILE * 1.04);
   const sandMat = new THREE.MeshStandardMaterial({
@@ -207,10 +214,14 @@ const seabed = new SeabedGroup();
 scene.add(seabed.group);
 
 {
+  // 场景面积扩大 5 倍，静物数量和分布半径同步放大，
+  // 保持视觉密度不变（否则会显得很空旷）
+  const AREA = 5; // 相对原来 ±62 场景的面积倍数
+
   // 海星：散落在沙地上
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < Math.round(26 * AREA); i++) {
     const a = Math.random() * Math.PI * 2;
-    const r = 8 + Math.random() * 48;
+    const r = 12 + Math.random() * 115;
     seabed.place(buildStarfish(), {
       position: new THREE.Vector3(Math.cos(a) * r, SEABED_Y + 0.35, Math.sin(a) * r),
       scale: 0.8 + Math.random() * 0.6,
@@ -219,68 +230,75 @@ scene.add(seabed.group);
   }
 
   // 珊瑚：成簇分布
-  for (let c = 0; c < 16; c++) {
-    const a = (c / 16) * Math.PI * 2 + Math.random() * 0.4;
-    const r = 16 + Math.random() * 44;
+  const coralClusters = Math.round(16 * AREA);
+  for (let c = 0; c < coralClusters; c++) {
+    const a = (c / coralClusters) * Math.PI * 2 + Math.random() * 0.4;
+    const r = 24 + Math.random() * 110;
     const cx = Math.cos(a) * r;
     const cz = Math.sin(a) * r;
     const hue = c % 4;
     for (let k = 0; k < 2 + Math.floor(Math.random() * 3); k++) {
       seabed.place(buildCoral({ hue: hue + k }), {
         position: new THREE.Vector3(
-          cx + (Math.random() - 0.5) * 6,
+          cx + (Math.random() - 0.5) * 12,
           SEABED_Y + 0.3,
-          cz + (Math.random() - 0.5) * 6
+          cz + (Math.random() - 0.5) * 12
         ),
-        scale: 1.0 + Math.random() * 0.9,
+        scale: 1.4 + Math.random() * 1.4, // 场景变大，珊瑚也略放大
         rotationY: Math.random() * Math.PI * 2,
       });
     }
   }
 
   // 海草：一丛丛的
-  for (let c = 0; c < 22; c++) {
-    const a = (c / 22) * Math.PI * 2 + Math.random() * 0.3;
-    const r = 10 + Math.random() * 52;
+  const grassPatches = Math.round(22 * AREA);
+  for (let c = 0; c < grassPatches; c++) {
+    const a = (c / grassPatches) * Math.PI * 2 + Math.random() * 0.3;
+    const r = 15 + Math.random() * 125;
     const cx = Math.cos(a) * r;
     const cz = Math.sin(a) * r;
     for (let k = 0; k < 3; k++) {
       seabed.placeSeagrass(buildSeagrass(), {
         position: new THREE.Vector3(
-          cx + (Math.random() - 0.5) * 4,
+          cx + (Math.random() - 0.5) * 8,
           SEABED_Y + 0.3,
-          cz + (Math.random() - 0.5) * 4
+          cz + (Math.random() - 0.5) * 8
         ),
-        scale: 0.85 + Math.random() * 0.6,
+        scale: 1.5 + Math.random() * 1.2,
       });
     }
   }
 }
 
+// 静物全部放完，生成 2 个合并后的 InstancedMesh
+seabed.finalize();
+
 // ─────────────────────────────────────────────────────────────
 // 鱼群
+//   场景扩大 5 倍，鱼群数量 ×2.8（不是 ×5，避免过密导致 CPU 压力），
+//   轨道半径也同步放大，保持视觉密度
 // ─────────────────────────────────────────────────────────────
 const clownfishSchool = new FishSchool({
-  build: buildClownfish, scale: 1.3, count: 14, speed: 0.24,
-  radiusX: 30, radiusZ: 26, height: -2, seed: 0.4,
+  build: buildClownfish, scale: 1.5, count: 40, speed: 0.13,
+  radiusX: 68, radiusZ: 58, height: -6, seed: 0.4,
 });
 scene.add(clownfishSchool.group);
 
 const blueTangSchool = new FishSchool({
-  build: buildBlueTang, scale: 1.5, count: 9, speed: 0.2,
-  radiusX: 40, radiusZ: 34, height: 6, seed: 2.1,
+  build: buildBlueTang, scale: 1.7, count: 26, speed: 0.11,
+  radiusX: 92, radiusZ: 78, height: 10, seed: 2.1,
 });
 scene.add(blueTangSchool.group);
 
 const yellowFishSchool = new FishSchool({
-  build: buildYellowFish, scale: 1.15, count: 16, speed: 0.3,
-  radiusX: 22, radiusZ: 20, height: -9, seed: 4.0,
+  build: buildYellowFish, scale: 1.35, count: 46, speed: 0.17,
+  radiusX: 52, radiusZ: 46, height: -22, seed: 4.0,
 });
 scene.add(yellowFishSchool.group);
 
 const angelfishSchool = new FishSchool({
-  build: buildAngelfish, scale: 1.35, count: 7, speed: 0.16,
-  radiusX: 48, radiusZ: 42, height: 11, seed: 5.6,
+  build: buildAngelfish, scale: 1.55, count: 20, speed: 0.09,
+  radiusX: 110, radiusZ: 96, height: 26, seed: 5.6,
 });
 scene.add(angelfishSchool.group);
 
@@ -288,24 +306,24 @@ scene.add(angelfishSchool.group);
 // 水母 / 海龟 / 章鱼
 // ─────────────────────────────────────────────────────────────
 const jellyfishGroup = new JellyfishGroup({
-  build: buildJellyfish, scale: 1.6, count: 12, height: 2, seed: 1.2,
+  build: buildJellyfish, scale: 1.9, count: 34, height: 0, seed: 1.2,
 });
 scene.add(jellyfishGroup.group);
 
 const turtleGroup = new TurtleGroup({
-  build: buildTurtle, scale: 1.9, count: 3, seed: 0.8,
+  build: buildTurtle, scale: 2.3, count: 8, seed: 0.8,
 });
 scene.add(turtleGroup.group);
 
 const octopusGroup = new OctopusGroup({
-  build: buildOctopus, scale: 1.7, count: 3, seed: 3.3,
+  build: buildOctopus, scale: 2.0, count: 8, seed: 3.3,
 });
 scene.add(octopusGroup.group);
 
 // ─────────────────────────────────────────────────────────────
 // 气泡
 // ─────────────────────────────────────────────────────────────
-const BUBBLE_COUNT = 140;
+const BUBBLE_COUNT = 320;
 const bubbleGeo = new THREE.BoxGeometry(1, 1, 1);
 const bubbleMat = new THREE.MeshStandardMaterial({
   color: 0xB8D2FF,
@@ -322,9 +340,9 @@ bubbles.frustumCulled = false;
 scene.add(bubbles);
 
 const bubbleState = Array.from({ length: BUBBLE_COUNT }, () => ({
-  x: (Math.random() - 0.5) * 115,
-  y: (Math.random() - 0.5) * 70,
-  z: (Math.random() - 0.5) * 115,
+  x: (Math.random() - 0.5) * 270,
+  y: (Math.random() - 0.5) * 120,
+  z: (Math.random() - 0.5) * 270,
   speed: 1.2 + Math.random() * 3.2,
   // 气泡要小：0.05~0.15 世界单位
   size: 0.05 + Math.random() * 0.1,
@@ -335,7 +353,7 @@ const bubbleState = Array.from({ length: BUBBLE_COUNT }, () => ({
 // 光柱
 // ─────────────────────────────────────────────────────────────
 const rayGroup = new THREE.Group();
-for (let i = 0; i < 11; i++) {
+for (let i = 0; i < 22; i++) {
   const plane = new THREE.Mesh(
     new THREE.PlaneGeometry(4 + Math.random() * 7, 130),
     new THREE.MeshBasicMaterial({
@@ -346,7 +364,7 @@ for (let i = 0; i < 11; i++) {
       blending: THREE.AdditiveBlending,
     })
   );
-  plane.position.set(-56 + i * 11 + Math.random() * 4, 12, -40 - Math.random() * 30);
+  plane.position.set(-130 + i * 12 + Math.random() * 5, 20, -95 - Math.random() * 60);
   plane.rotation.z = (Math.random() - 0.5) * 0.2;
   rayGroup.add(plane);
 }
@@ -358,15 +376,15 @@ scene.add(rayGroup);
 const swimmer = new WhaleSwimmer({
   root: whale,
   bounds: { x: WORLD.x, y: WORLD.y, z: WORLD.z },
-  margin: 12,
+  margin: 26,
   speed: 4.2,
   turnRate: 1.05, // 最大角速度（弧度/秒）
   turnGain: 2.0, // P 控制增益
   turnAccel: 2.4, // 角加速度上限，越小转向越柔和
   bankAmount: 0.26,
   maxBank: 0.42,
-  minY: -2, // 巡游高度：贴近海底一些，第一人称才看得到海床和生物
-  maxY: 9,
+  minY: -20, // 巡游高度：场景放大后同步放宽
+  maxY: 14,
   tailPivot,
   finPivots,
 });
@@ -378,23 +396,23 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.07;
 controls.enablePan = false;
-controls.minDistance = 9;
-controls.maxDistance = 70;
+controls.minDistance = 12;
+controls.maxDistance = 160;
 controls.minPolarAngle = Math.PI * 0.08;
 controls.maxPolarAngle = Math.PI * 0.9;
 controls.target.set(0, 0.5, 0);
 controls.autoRotate = false;
 
 const followCam = new FollowCamera(camera, controls, {
-  distance: 18,
-  height: 3.5, // 接近平视：有水下代入感，鲸鱼轮廓清晰
+  distance: 34,
+  height: 7, // 场景放大后同步抬高
   sideOffset: 0.85,
   lookAhead: 3,
   posStiffness: 4.5, // 位置跟得紧一点，但不抖
   headingStiffness: 1.5, // 朝向慢半拍 → 转弯时相机顺弧线绕
   camStiffness: 2.6,
   lookStiffness: 3.2,
-  minCameraY: SEABED_Y + 12, // 别钻进海床
+  minCameraY: SEABED_Y + 24, // 别钻进海床
 });
 
 camera.position.set(0, 8, 20);
@@ -405,7 +423,7 @@ camera.lookAt(controls.target);
 //   按 W/A/S/D 立刻接管；停手 2.5 秒后自动交还跟随相机
 // ─────────────────────────────────────────────────────────────
 const freeCam = new FreeFlyCamera(camera, canvas, {
-  speed: 16,
+  speed: 38,
   boost: 2.6,
   accel: 7,
   lookSpeed: 0.0024,
@@ -563,10 +581,10 @@ function animate() {
   for (let i = 0; i < BUBBLE_COUNT; i++) {
     const b = bubbleState[i];
     b.y += b.speed * dt;
-    if (b.y > 34) {
-      b.y = -26;
-      b.x = (Math.random() - 0.5) * 110;
-      b.z = (Math.random() - 0.5) * 110;
+    if (b.y > 60) {
+      b.y = -54;
+      b.x = (Math.random() - 0.5) * 270;
+      b.z = (Math.random() - 0.5) * 270;
     }
     dummy.position.set(b.x + Math.sin(t * 1.1 + b.phase) * 1.4, b.y, b.z);
     dummy.rotation.set(0, t * 0.5 + b.phase, 0);

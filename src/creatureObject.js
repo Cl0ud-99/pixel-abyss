@@ -1,26 +1,25 @@
 import * as THREE from 'three';
 import { VOXEL } from './voxel.js';
+import { SHARED_BOX, SHARED_MAT, colorOfKind } from './creatureBatch.js';
 
 // ─────────────────────────────────────────────────────────────
 // 把一只生物的 parts 变成可动的 three.js 对象
 // 每个 part 是一个 InstancedMesh，挂在自己的枢轴上
+//
+// 注意：几何体和材质从 creatureBatch 共享，不要在这里 new。
+// 之前每次都 new 一套，196 个生物实例 = 196 份重复几何体。
 // ─────────────────────────────────────────────────────────────
 export function buildCreatureObject(data, { scale = 1 } = {}) {
   const root = new THREE.Group();
   const parts = [];
 
-  const boxGeo = new THREE.BoxGeometry(VOXEL * 0.96, VOXEL * 0.96, VOXEL * 0.96);
-  const mat = new THREE.MeshStandardMaterial({
-    flatShading: true,
-    roughness: 0.62,
-    metalness: 0.04,
-  });
+  const boxGeo = SHARED_BOX;
+  const mat = SHARED_MAT;
 
   const colorCache = new Map();
   const colorOf = (kind) => {
     if (colorCache.has(kind)) return colorCache.get(kind);
-    const hex = data.palette[kind] || data.palette.body || data.palette.main || '#8A8A8A';
-    const c = new THREE.Color(hex).convertSRGBToLinear();
+    const c = colorOfKind(data.palette, kind);
     colorCache.set(kind, c);
     return c;
   };

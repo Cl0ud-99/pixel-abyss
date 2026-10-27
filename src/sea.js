@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { buildCreatureObject, findParts } from './creatureObject.js';
+import { StaticVoxelBatch, SwayVoxelBatch, swayUniforms } from './creatureBatch.js';
+import { InstancedGroup, ArticulatedGroup, flattenCreature } from './instancedGroup.js';
 
 // ─────────────────────────────────────────────────────────────
 // 游动行为：绕一个大圈巡游 + 上下起伏 + 身体摆动
@@ -21,266 +22,376 @@ function orbitPos(t, radiusX, radiusZ, height, phase, tilt = 0) {
 // ─────────────────────────────────────────────────────────────
 // 鱼群：绕场景游动，身体左右摆尾
 // ─────────────────────────────────────────────────────────────
+// 鱼群
+//
+// 优化：整群鱼合成 1 个 InstancedMesh（每条鱼 1 个体素实例）。
+//   之前：46 条鱼 = 46 个 draw call
+//   现在：1 个
+// 鱼的「摆尾」通过每只生物的整体 yaw 微摆实现，够用且几乎零成本。
+// ─────────────────────────────────────────────────────────────
 export class FishSchool {
   constructor({ build, palette, scale, count, speed, radiusX, radiusZ, height, seed = 0 }) {
     this.group = new THREE.Group();
-    this.members = [];
     this.speed = speed;
     this.radiusX = radiusX;
     this.radiusZ = radiusZ;
     this.height = height;
 
+    const data = build();
+    palette = palette || data.palette;
+    const voxels = flattenCreature(data);
+
+    // 每条鱼的轨道参数
+    this.members = [];
     for (let i = 0; i < count; i++) {
-      const data = build();
-      const { root, parts } = buildCreatureObject(data, { scale });
-      const phase = (i / count) * TAU + seed;
-      // 每条鱼错开一点轨道和高度，形成鱼群感
-      const jitter = {
-        radiusX: radiusX + (Math.random() - 0.5) * 6,
-        radiusZ: radiusZ + (Math.random() - 0.5) * 6,
-        height: height + (Math.random() - 0.5) * 5,
-        phase,
+      this.members.push({
+        radiusX: radiusX + (Math.random() - 0.5) * radiusX * 0.24,
+        radiusZ: radiusZ + (Math.random() - 0.5) * radiusZ * 0.24,
+        height: height + (Math.random() - 0.5) * height * 0.6 + (Math.random() - 0.5) * 14,
+        phase: (i / count) * TAU + seed,
         speed: speed * (0.85 + Math.random() * 0.3),
         wobble: Math.random() * TAU,
-      };
-      this.group.add(root);
-      this.members.push({ root, parts, ...jitter });
+        scale: scale * (0.88 + Math.random() * 0.24),
+      });
     }
+
+    this.batch = new InstancedGroup({
+      voxels,
+      palette,
+      instances: this.members,
+    });
+    this.batch.addTo(this.group);
+
+    this._m = new THREE.Matrix4();
+    this._q = new THREE.Quaternion();
+    this._e = new THREE.Euler();
+    this._p = new THREE.Vector3();
+    this._s = new THREE.Vector3();
   }
 
-  update(t, dt) {
-    for (const m of this.members) {
+  update(t) {
+    this.batch.update((j) => {
+      const m = this.members[j];
       const a = t * m.speed + m.phase;
-      const x = Math.cos(a) * m.radiusX;
-      const z = Math.sin(a) * m.radiusZ;
-      const y = m.height + Math.sin(a * 2 + m.wobble) * 0.8;
 
-      m.root.position.set(x, y, z);
+      this._p.set(
+        Math.cos(a) * m.radiusX,
+        m.height + Math.sin(a * 2 + m.wobble) * 2.2,
+        Math.sin(a) * m.radiusZ
+      );
 
-      // 朝向切线方向
+      // 朝向切线 + 摆尾
       const dx = -Math.sin(a) * m.radiusX;
       const dz = Math.cos(a) * m.radiusZ;
-      m.root.rotation.y = Math.atan2(dx, dz) + Math.PI / 2;
+      const yaw = Math.atan2(dx, dz) + Math.PI / 2 + Math.sin(t * 6 + m.wobble) * 0.1;
 
-      // 身体轻微侧倾 + 上下点头
-      m.root.rotation.z = Math.sin(t * 2 + m.wobble) * 0.12;
-      m.root.rotation.x = Math.sin(t * 1.6 + m.wobble) * 0.08;
+      this._e.set(
+        Math.sin(t * 1.6 + m.wobble) * 0.08, // 点头
+        yaw,
+        Math.sin(t * 2 + m.wobble) * 0.12, // 侧倾
+        'YXZ'
+      );
+      this._q.setFromEuler(this._e);
+      this._s.setScalar(m.scale);
 
-      // 整条鱼左右摆（模拟尾鳍推进）
-      m.root.children.forEach((c) => {
-        // 只摆最外层容器，内部 mesh 保持
-      });
-      m.root.rotation.y += Math.sin(t * 6 + m.wobble) * 0.08;
-    }
+      return this._m.compose(this._p, this._q, this._s);
+    });
   }
 }
 
 // ─────────────────────────────────────────────────────────────
 // 水母：缓慢上下漂浮，伞盖脉动，触手飘荡
+//
+// 优化：34 只水母 × 9 部件 = 306 个 draw call → 合并成 1 个。
+// 每只水母的伞盖缩放和触手摆动都在 batch.update 里算。
 // ─────────────────────────────────────────────────────────────
 export class JellyfishGroup {
   constructor({ build, scale, count, height, seed = 0 }) {
     this.group = new THREE.Group();
     this.members = [];
 
-    for (let i = 0; i < count; i++) {
-      const data = build();
-      const { root, parts } = buildCreatureObject(data, { scale });
-      const bell = findParts(parts, 'bell')[0];
-      const tentacles = findParts(parts, 'tentacle');
+    const data = build();
+    const parts = data.parts.filter((p) => p.voxels?.length);
 
+    for (let i = 0; i < count; i++) {
       const angle = (i / count) * TAU + seed;
-      // 推到外围，避免挤在鲸鱼旁边
-      const radius = 15 + Math.random() * 10;
-      const member = {
-        root,
-        bell,
-        tentacles,
+      const radius = 32 + Math.random() * 26;
+      this.members.push({
         base: new THREE.Vector3(
           Math.cos(angle) * radius,
-          height + (Math.random() - 0.5) * 10,
+          height + (Math.random() - 0.5) * 44,
           Math.sin(angle) * radius
         ),
         drift: Math.random() * TAU,
         speed: 0.16 + Math.random() * 0.12,
         pulse: Math.random() * TAU,
-      };
-      this.group.add(root);
-      this.members.push(member);
+      });
     }
+
+    this.batch = new ArticulatedGroup({
+      data,
+      count,
+      scale,
+      nameFilter: (n) => n === 'bell' || n.startsWith('tentacle'),
+    });
+    this.batch.addTo(this.group);
+
+    // 记录每个部件是不是触手
+    this.partIsTentacle = this.batch.parts.map((p) => p.name.startsWith('tentacle'));
+    this.partIsBell = this.batch.parts.map((p) => p.name === 'bell');
+
+    this._mats = this.members.map(() => new THREE.Matrix4());
+    this._partLocals = this.members.map(() =>
+      this.batch.parts.map(() => new THREE.Matrix4())
+    );
+    this._p = new THREE.Vector3();
+    this._q = new THREE.Quaternion();
+    this._s = new THREE.Vector3();
+    this._e = new THREE.Euler();
   }
 
-  update(t, dt) {
-    for (const m of this.members) {
-      // 缓慢上下漂
-      m.root.position.set(
+  update(t) {
+    for (let i = 0; i < this.members.length; i++) {
+      const m = this.members[i];
+
+      this._p.set(
         m.base.x + Math.sin(t * 0.3 + m.drift) * 1.6,
         m.base.y + Math.sin(t * m.speed * 2 + m.drift) * 2.2,
         m.base.z + Math.cos(t * 0.26 + m.drift) * 1.6
       );
+      this._e.set(0, Math.sin(t * 0.2 + m.drift) * 0.4, 0, 'YXZ');
+      this._q.setFromEuler(this._e);
+      this._s.setScalar(1);
+      this._mats[i].compose(this._p, this._q, this._s);
 
-      // 伞盖脉动（缩放）
-      const p = 1 + Math.sin(t * 1.9 + m.pulse) * 0.09;
-      if (m.bell) {
-        m.bell.pivot.scale.set(p, 1 / p * 0.92 + 0.08, p);
+      // 各部件局部变换
+      const pulse = 1 + Math.sin(t * 1.9 + m.pulse) * 0.09;
+      for (let pi = 0; pi < this.batch.parts.length; pi++) {
+        const local = this._partLocals[i][pi];
+        if (this.partIsBell[pi]) {
+          // 伞盖脉动
+          local.makeScale(pulse, 1 / pulse * 0.92 + 0.08, pulse);
+        } else {
+          // 触手摆动
+          const idx = pi;
+          this._e.set(
+            Math.sin(t * 1.1 + idx * 0.9 + m.pulse) * 0.28,
+            0,
+            Math.cos(t * 0.9 + idx * 0.7) * 0.24,
+            'YXZ'
+          );
+          local.makeRotationFromEuler(this._e);
+        }
       }
-
-      // 触手摆动
-      m.tentacles.forEach((tp, i) => {
-        tp.pivot.rotation.x = Math.sin(t * 1.1 + i * 0.9 + m.pulse) * 0.28;
-        tp.pivot.rotation.z = Math.cos(t * 0.9 + i * 0.7) * 0.24;
-      });
-
-      m.root.rotation.y = Math.sin(t * 0.2 + m.drift) * 0.4;
     }
+
+    this.batch.update(this._mats, this._partLocals);
   }
 }
 
+
 // ─────────────────────────────────────────────────────────────
 // 海龟：沿缓慢的大圈游动，四鳍划水
+//
+// 优化：8 只海龟 × 8 部件 = 64 个 draw call → 合并成 1 个
 // ─────────────────────────────────────────────────────────────
 export class TurtleGroup {
   constructor({ build, scale, count, seed = 0 }) {
     this.group = new THREE.Group();
     this.members = [];
+    const data = build();
 
     for (let i = 0; i < count; i++) {
-      const data = build();
-      const { root, parts } = buildCreatureObject(data, { scale });
-      const limbs = parts.filter((p) => p.name.startsWith('fl'));
-      const head = parts.find((p) => p.name === 'head');
-
-      this.group.add(root);
       this.members.push({
-        root,
-        limbs,
-        head,
-        radiusX: 16 + i * 4,
-        radiusZ: 13 + i * 3,
-        height: 3 + i * 4.5,
+        // 轨道半径按放大后的场景缩放
+        radiusX: 38 + i * 9,
+        radiusZ: 32 + i * 7,
+        height: 6 + i * 5.5,
         phase: seed + i * 2.1,
-        speed: 0.19 + i * 0.02,
+        speed: 0.11 + i * 0.012,
         wobble: Math.random() * TAU,
       });
     }
+
+    this.batch = new ArticulatedGroup({ data, count, scale });
+    this.batch.addTo(this.group);
+
+    this.partIsLimb = this.batch.parts.map((p) => p.name.startsWith('fl'));
+    this.partIsHead = this.batch.parts.map((p) => p.name === 'head');
+
+    this._mats = this.members.map(() => new THREE.Matrix4());
+    this._partLocals = this.members.map(() => this.batch.parts.map(() => new THREE.Matrix4()));
+    this._p = new THREE.Vector3();
+    this._q = new THREE.Quaternion();
+    this._s = new THREE.Vector3(1, 1, 1);
+    this._e = new THREE.Euler();
   }
 
   update(t) {
-    for (const m of this.members) {
+    for (let i = 0; i < this.members.length; i++) {
+      const m = this.members[i];
       const a = t * m.speed + m.phase;
-      m.root.position.set(
+
+      this._p.set(
         Math.cos(a) * m.radiusX,
         m.height + Math.sin(a * 2 + m.wobble) * 1.1,
         Math.sin(a) * m.radiusZ
       );
 
-      // 朝向切线
       const dx = -Math.sin(a) * m.radiusX;
       const dz = Math.cos(a) * m.radiusZ;
-      m.root.rotation.y = Math.atan2(dx, dz) + Math.PI / 2;
-      m.root.rotation.z = Math.sin(t * 0.6 + m.wobble) * 0.1;
+      this._e.set(
+        0,
+        Math.atan2(dx, dz) + Math.PI / 2,
+        Math.sin(t * 0.6 + m.wobble) * 0.1,
+        'YXZ'
+      );
+      this._q.setFromEuler(this._e);
+      this._mats[i].compose(this._p, this._q, this._s);
 
-      // 四鳍划水
-      m.limbs.forEach((lp, i) => {
-        const dir = i % 2 === 0 ? 1 : -1;
-        lp.pivot.rotation.y = Math.sin(t * 1.1 + i * 1.2) * 0.42 * dir;
-        lp.pivot.rotation.x = Math.cos(t * 1.1 + i * 1.2) * 0.18;
-      });
-
-      if (m.head) {
-        m.head.pivot.rotation.y = Math.sin(t * 0.7) * 0.14;
+      // 各部件局部摆动
+      for (let pi = 0; pi < this.batch.parts.length; pi++) {
+        const local = this._partLocals[i][pi];
+        if (this.partIsLimb[pi]) {
+          const dir = pi % 2 === 0 ? 1 : -1;
+          this._e.set(
+            Math.cos(t * 1.1 + pi * 1.2) * 0.18,
+            Math.sin(t * 1.1 + pi * 1.2) * 0.42 * dir,
+            0,
+            'YXZ'
+          );
+          local.makeRotationFromEuler(this._e);
+        } else if (this.partIsHead[pi]) {
+          this._e.set(0, Math.sin(t * 0.7) * 0.14, 0, 'YXZ');
+          local.makeRotationFromEuler(this._e);
+        } else {
+          local.identity();
+        }
       }
     }
+
+    this.batch.update(this._mats, this._partLocals);
   }
 }
 
 // ─────────────────────────────────────────────────────────────
 // 章鱼：在海底附近缓慢漂移，触手扭动
+//
+// 优化：8 只章鱼 × 9 部件 = 72 个 draw call → 合并成 1 个
 // ─────────────────────────────────────────────────────────────
 export class OctopusGroup {
   constructor({ build, scale, count, seed = 0 }) {
     this.group = new THREE.Group();
     this.members = [];
+    const data = build();
 
     for (let i = 0; i < count; i++) {
-      const data = build();
-      const { root, parts } = buildCreatureObject(data, { scale });
-      const arms = parts.filter((p) => p.name.startsWith('arm'));
-      const head = parts.find((p) => p.name === 'head');
-
       const angle = (i / count) * TAU + seed + 0.6;
-      this.group.add(root);
       this.members.push({
-        root,
-        arms,
-        head,
         base: new THREE.Vector3(
-          Math.cos(angle) * 17,
-          -7 + i * 2.5,
-          Math.sin(angle) * 17
+          Math.cos(angle) * 38,
+          -16 + i * 3.5,
+          Math.sin(angle) * 38
         ),
         drift: Math.random() * TAU,
         speed: 0.12 + Math.random() * 0.08,
       });
     }
+
+    this.batch = new ArticulatedGroup({ data, count, scale });
+    this.batch.addTo(this.group);
+
+    this.partIsArm = this.batch.parts.map((p) => p.name.startsWith('arm'));
+    this.partIsHead = this.batch.parts.map((p) => p.name === 'head');
+
+    this._mats = this.members.map(() => new THREE.Matrix4());
+    this._partLocals = this.members.map(() => this.batch.parts.map(() => new THREE.Matrix4()));
+    this._p = new THREE.Vector3();
+    this._q = new THREE.Quaternion();
+    this._s = new THREE.Vector3(1, 1, 1);
+    this._e = new THREE.Euler();
   }
 
   update(t) {
-    for (const m of this.members) {
-      m.root.position.set(
+    for (let i = 0; i < this.members.length; i++) {
+      const m = this.members[i];
+
+      this._p.set(
         m.base.x + Math.sin(t * m.speed + m.drift) * 3.2,
         m.base.y + Math.sin(t * m.speed * 1.7 + m.drift) * 1.4,
         m.base.z + Math.cos(t * m.speed + m.drift) * 3.2
       );
-      m.root.rotation.y = t * m.speed * 0.9 + m.drift;
+      this._e.set(0, t * m.speed * 0.9 + m.drift, 0, 'YXZ');
+      this._q.setFromEuler(this._e);
+      this._mats[i].compose(this._p, this._q, this._s);
 
-      // 触手波浪式扭动
-      m.arms.forEach((ap, i) => {
-        const p = i * 0.8;
-        ap.pivot.rotation.x = Math.sin(t * 1.2 + p) * 0.3;
-        ap.pivot.rotation.z = Math.cos(t * 1.0 + p) * 0.3;
-      });
-
-      if (m.head) {
-        m.head.pivot.rotation.y = Math.sin(t * 0.5 + m.drift) * 0.2;
+      for (let pi = 0; pi < this.batch.parts.length; pi++) {
+        const local = this._partLocals[i][pi];
+        if (this.partIsArm[pi]) {
+          const p = pi * 0.8;
+          this._e.set(
+            Math.sin(t * 1.2 + p) * 0.3,
+            0,
+            Math.cos(t * 1.0 + p) * 0.3,
+            'YXZ'
+          );
+          local.makeRotationFromEuler(this._e);
+        } else if (this.partIsHead[pi]) {
+          this._e.set(0, Math.sin(t * 0.5 + m.drift) * 0.2, 0, 'YXZ');
+          local.makeRotationFromEuler(this._e);
+        } else {
+          local.identity();
+        }
       }
     }
+
+    this.batch.update(this._mats, this._partLocals);
   }
 }
 
 // ─────────────────────────────────────────────────────────────
-// 海底静物：海星、珊瑚、海草（海草轻微摆动）
+// 海底静物：海星、珊瑚、海草
+//
+// 关键优化：静态的（海星、珊瑚）和摇摆的（海草）分别合批，
+// 各自只产生 1 个 draw call。
+//   之前：26 海星 + 40 珊瑚 + 66 海草×8 片叶子 = 594 个 draw call
+//   现在：2 个
 // ─────────────────────────────────────────────────────────────
 export class SeabedGroup {
   constructor() {
     this.group = new THREE.Group();
-    this.swayers = [];
+    this.staticBatch = new StaticVoxelBatch();
+    this.swayBatch = new SwayVoxelBatch();
+    this._built = false;
   }
 
-  // 放一个静物
+  // 放一个静物（海星、珊瑚）—— 只是记进批次，不立刻创建 mesh
   place(data, { position, scale = 1, rotationY = 0 }) {
-    const { root, parts } = buildCreatureObject(data, { scale });
-    root.position.copy(position);
-    root.rotation.y = rotationY;
-    this.group.add(root);
-    return { root, parts };
+    this.staticBatch.addCreature(data, { position, scale, rotationY });
+    return null;
   }
 
-  // 海草：每片叶子单独摆动
-  placeSeagrass(data, { position, scale = 1 }) {
-    const { root, parts } = buildCreatureObject(data, { scale });
-    root.position.copy(position);
-    this.group.add(root);
-    parts.forEach((p, i) => {
-      this.swayers.push({ pivot: p.pivot, phase: i * 1.3, amp: 0.16 + Math.random() * 0.1 });
-    });
-    return { root, parts };
+  // 海草：也进批次，摆动交给着色器
+  placeSeagrass(data, { position, scale = 1, rotationY = 0 }) {
+    this.swayBatch.addCreature(data, { position, scale, rotationY });
+    return null;
+  }
+
+  // 所有静物放完后调用一次，真正生成 2 个 InstancedMesh
+  finalize() {
+    if (this._built) return;
+    this._built = true;
+
+    if (this.staticBatch.items.length) {
+      this.group.add(this.staticBatch.build());
+    }
+    if (this.swayBatch.items.length) {
+      this.group.add(this.swayBatch.build());
+    }
   }
 
   update(t) {
-    for (const s of this.swayers) {
-      s.pivot.rotation.z = Math.sin(t * 0.9 + s.phase) * s.amp;
-      s.pivot.rotation.x = Math.cos(t * 0.7 + s.phase) * s.amp * 0.6;
-    }
+    // 海草摆动在顶点着色器里做，这里只需要推进时间
+    swayUniforms.uTime.value = t;
   }
 }
