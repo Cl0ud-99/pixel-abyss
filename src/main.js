@@ -107,6 +107,9 @@ for (const v of voxels) {
 const TAIL_PIVOT_X = 11;
 
 const whale = new THREE.Group();
+// 鲸鱼体型放大 3 倍（模型原始尺寸约 4.1 单位长）
+const WHALE_SCALE = 3;
+whale.scale.setScalar(WHALE_SCALE);
 scene.add(whale);
 
 // 所有体素共用一个单位立方体几何
@@ -383,8 +386,8 @@ const swimmer = new WhaleSwimmer({
   turnAccel: 2.4, // 角加速度上限，越小转向越柔和
   bankAmount: 0.26,
   maxBank: 0.42,
-  minY: -20, // 巡游高度：场景放大后同步放宽
-  maxY: 14,
+  minY: 2, // 巡游高度：鲸鱼放大 3 倍后要抬高，否则会插进海床
+  maxY: 30,
   tailPivot,
   finPivots,
 });
@@ -404,11 +407,11 @@ controls.target.set(0, 0.5, 0);
 controls.autoRotate = false;
 
 const followCam = new FollowCamera(camera, controls, {
-  distance: 34,
-  height: 7, // 场景放大后同步抬高
+  distance: 70,
+  height: 26, // 随鲸鱼体型放大同步抬高
   sideOffset: 0.85,
-  lookAhead: 3,
-  posStiffness: 4.5, // 位置跟得紧一点，但不抖
+  lookAhead: 12,
+  posStiffness: 3.0, // 体型变大后适当放缓，避免甩
   headingStiffness: 1.5, // 朝向慢半拍 → 转弯时相机顺弧线绕
   camStiffness: 2.6,
   lookStiffness: 3.2,

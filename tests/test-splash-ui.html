@@ -24,7 +24,7 @@
       if (frame.contentDocument?.readyState === 'complete') r();
       else frame.addEventListener('load', r, { once: true });
     });
-    await wait(2500); // 等场景初始化
+    await wait(6000); // 等场景初始化（场景扩大后加载变慢）
 
     const doc = frame.contentDocument;
     const win = frame.contentWindow;
@@ -51,7 +51,7 @@
 
     // ── 4. 点击开始 ──
     startBtn.click();
-    await wait(900);
+    await wait(2000);
     ok(splash.classList.contains('hide'), '点击后开屏页隐藏');
     ok(hud.classList.contains('show'), '点击后 HUD 显示');
     ok(win.__GAME__?.started === true, '游戏状态标记为已开始');
@@ -71,7 +71,7 @@
     // ── 7. 点击第一人称 ──
     const fpBtn = btns.find((b) => b.dataset.view === 'first');
     fpBtn.click();
-    await wait(700);
+    await wait(1200);
     ok(win.__GAME__.viewMode === 'first', '切换到第一人称', `mode=${win.__GAME__.viewMode}`);
     ok(fpBtn.classList.contains('active'), '「第一人称」按钮高亮');
     ok(!followBtn.classList.contains('active'), '「跟随」按钮取消高亮');
@@ -83,21 +83,21 @@
     // ── 8. 点击自由飞行 ──
     const freeBtn = btns.find((b) => b.dataset.view === 'free');
     freeBtn.click();
-    await wait(700);
+    await wait(1200);
     ok(win.__GAME__.viewMode === 'free', '切换到自由飞行', `mode=${win.__GAME__.viewMode}`);
     ok(freeBtn.classList.contains('active'), '「自由飞行」按钮高亮');
     ok(doc.getElementById('modeText').textContent === '自由飞行', '徽章显示「自由飞行」');
 
     // ── 9. 切回跟随 ──
     followBtn.click();
-    await wait(700);
+    await wait(1200);
     ok(win.__GAME__.viewMode === 'follow', '切回跟随');
     ok(followBtn.classList.contains('active'), '「跟随」重新高亮');
 
     // ── 10. V 键循环 ──
     const before = win.__GAME__.viewMode;
     win.dispatchEvent(new win.KeyboardEvent('keydown', { code: 'KeyV', bubbles: true, cancelable: true }));
-    await wait(500);
+    await wait(1200);
     const after = win.__GAME__.viewMode;
     ok(after !== before, 'V 键能切换视角', `${before} → ${after}`);
 

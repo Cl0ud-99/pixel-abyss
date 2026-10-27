@@ -46,6 +46,8 @@ export class WhaleSwimmer {
     finPivots = [],
   }) {
     this.root = root;
+    // 体型缩放（供第一人称相机换算眼睛位置）
+    this.scale = root.scale.x || 1;
     this.bounds = bounds;
     this.margin = margin;
     this.cruiseSpeed = speed;
@@ -337,8 +339,8 @@ export class WhaleSwimmer {
       pivot.rotation.z = Math.sin(t * beat * 0.6) * 0.1;
     });
 
-    // 上下起伏（纯视觉）
-    this.root.position.y += Math.sin(t * 0.9) * 0.18;
+    // 上下起伏（纯视觉，随体型缩放）
+    this.root.position.y += Math.sin(t * 0.9) * 0.18 * this.scale;
   }
 }
 

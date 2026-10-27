@@ -82,19 +82,21 @@ export class FirstPersonCamera {
     this.smoothRoll += (swimmer.roll - this.smoothRoll) * k;
 
     // ── 计算眼睛在世界里的位置 ──
-    // 鲸鱼 root 的变换：先平移 pos，再按 YXZ 旋转
+    // 鲸鱼 root 的变换：先缩放，再按 YXZ 旋转，最后平移
     const euler = new THREE.Euler(-swimmer.pitch, swimmer.heading + Math.PI / 2, this.smoothRoll, 'YXZ');
-    const local = this.eyeOffset.clone().multiplyScalar(VOXEL);
+    // 眼睛偏移必须乘上鲸鱼的缩放，否则放大的鲸鱼会把相机整个包进身体里
+    const scale = swimmer.scale ?? 1;
+    const local = this.eyeOffset.clone().multiplyScalar(VOXEL * scale);
     local.applyEuler(euler);
     this._tmpPos.copy(swimmer.pos).add(local);
 
-    // 呼吸起伏
-    this._tmpPos.y += Math.sin(this.time * 1.35) * this.bobAmount;
+    // 呼吸起伏（也随体型缩放）
+    this._tmpPos.y += Math.sin(this.time * 1.35) * this.bobAmount * scale;
 
     this.camera.position.copy(this._tmpPos);
 
     // ── 朝向：沿鲸鱼前进方向，略微下俯 ──
-    const lookDist = 10;
+    const lookDist = 26; // 鲸鱼放大 3 倍后同步加大注视距离
     const pitchBias = -0.14; // 稍微往下看，能看到海床、海草和珊瑚
     const p = this.smoothPitch + pitchBias;
     const forward = new THREE.Vector3(
